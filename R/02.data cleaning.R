@@ -287,17 +287,17 @@ case_ctrl_data <- bind_rows(aaces_clinical, ncocs_clinical) %>%
 saveRDS(case_ctrl_data, file = "case_ctrl_data.rds")
 
 
-############################################################################## III ### Join ROIs data----
-ROI_global <- 
-  full_join(ROI_tumor, ROI_stroma,
+############################################################################## III ### Join New ROIs data----
+ROI_global_2022jan <- 
+  full_join(ROI_tumor_2022jan, ROI_stroma_2022jan,
             by = "image_tag") %>% 
-  full_join(., ROI_total,
+  full_join(., ROI_total_2022jan,
             by = c("image_tag" = "total_image_tag")) %>% 
   mutate(image_tag = str_replace(image_tag, "16-", "16"),
          suid = str_match(image_tag,
                           "(L.Peres_P1_OV|L.Peres_P1_)([:digit:]*)")[,3],
          .before = 1) %>%
-  `colnames<-`(str_remove(colnames(.), "positive_")) %>% 
+  # `colnames<-`(str_remove(colnames(.), "positive_")) %>% 
   select(image_tag, suid, annotation = total_annotation,
          total_cells = total_total_cells, everything()) %>%
   arrange(suid) %>% 
@@ -319,11 +319,34 @@ ROI_global <-
   mutate(slide_type = "ROI")
 
 
-######################################################################################## IV ### Create tertile cat with immune cells----
+############################################################################## IV ### Rename R00 ROIs data----
+ROI_global_2021R00 <- ROI_global_2021R00 %>% 
+  rename(annotation = intratumoral_i_vs_peripheral_p_,
+         tumor_area_analyzed_mm2 = tumor_area_analyzed_mm2_,
+         stroma_area_analyzed_mm2 = stroma_area_analyzed_mm2_,
+         area_analyzed_mm2 = area_analyzed_mm2_) %>% 
+  rename_at(vars(starts_with("fox") | 
+                   starts_with("cd") |
+                   starts_with("percent_fox") | 
+                   starts_with("percent_cd") |
+                   starts_with("area")
+                 ), ~ paste0("total_", .)) 
+
+
+############################################################################## VI ### Bind ROIs data----
+ROI_global <- bind_rows(ROI_global_2021R00, ROI_global_2022jan, .id = "version") %>% 
+  `colnames<-`(str_remove_all(colnames(.), "_positive_cells|_cells|_opal_..._positive_cells")) %>%
+  mutate(version = case_when(
+    version == 1        ~ "K99/R00",
+    version == 2        ~ "AACES2"
+  ))
+
+
+############################################################################## VII ### Create cat with immune cells----
 # Create average by patients by annotation
 markers_full <- ROI_global %>% 
   select(-image_tag) %>% 
-  group_by(suid, annotation) %>% 
+  group_by(suid, version, annotation) %>% 
   mutate(across(where(is.numeric), .fns = ~ mean(.))) %>% 
   ungroup() %>% 
   distinct()
@@ -337,23 +360,24 @@ markers_ROI <-
     annotation == "Stromal"               ~ "s"
   )) %>% 
   pivot_wider(names_from = annotation,
-              values_from = -c(suid, annotation),
-              names_glue = "{.value}.{annotation}_"
+              values_from = -c(suid, annotation, version),
+              names_glue = "{.value}_{annotation}"
   )
 
+#  Create low/high cat
 for (i in colnames(markers_ROI %>% 
                    select(c(contains("percent_cd3"), 
-                            starts_with("percent_cd8"), 
+                            # starts_with("percent_cd8"), 
                             contains("percent_cd11b"))))) {
   
   cell_type <-
-    str_match(i, "percent_(.*?)(_opal|_cells)")[, 2]
+    str_match(i, "percent_(.*?)(_p|_i|_s)")[, 2]
   compartment <-
     str_match(i, "^(.*?)_")[, 2]
   region <-
-    str_match(i, "_cells.(.*?)$")[, 2]
+    str_match(i, "percent_(.*?)(_p|_i|_s)")[, 3]
 
-  markers_ROI[[paste0(cell_type, "_", compartment, "_", region, "grp")]] <-  case_when(
+  markers_ROI[[paste0(cell_type, "_", compartment, region)]] <-  case_when(
     i <= 1      ~ "low",
     i > 1       ~ "high"
   )
@@ -365,16 +389,41 @@ markers_ROI <- markers_ROI %>%
 
 
 ######################################################################################## V ### Create immunoscore and cluster----
+markers_ROI <- markers_ROI %>% 
+  mutate(percentile_score_CD3_i = ntile(total_percent_cd3_i, 100) ) %>% 
+  mutate(percentile_score_CD3_p = ntile(total_percent_cd3_p, 100) ) %>% 
+  mutate(percentile_score_CD8_i = ntile(total_percent_cd8_i, 100) ) %>% 
+  mutate(percentile_score_CD8_p = ntile(total_percent_cd8_p, 100) ) %>%
+  mutate(percentile_score_mean = 
+           rowMeans(select(.,`percentile_score_CD3_i`:`percentile_score_CD8_p`), 
+                    na.rm = TRUE)
+  ) %>%
+  mutate(immunoscore_patients = case_when(
+    percentile_score_mean <= 10        ~ 0,
+    percentile_score_mean <= 25        ~ 1,
+    percentile_score_mean <= 70        ~ 2,
+    percentile_score_mean <= 95        ~ 3,
+    percentile_score_mean > 95         ~ 4 
+  )) %>% 
+  mutate(immunoscore_patients = factor(immunoscore_patients)) %>% 
+  mutate(immunoscore_2018lancet_patients = case_when(
+    percentile_score_mean <= 25        ~ "Low",
+    percentile_score_mean <= 70        ~ "Intermediate",
+    percentile_score_mean > 70         ~ "High"
+  )) %>% 
+  mutate(immunoscore_2018lancet_patients = 
+           factor(immunoscore_2018lancet_patients, 
+                  levels = c("Low", "Intermediate", "High"))) 
+
 
 ######################################################################################## VI ### Join data----
-markers <- right_join(case_ctrl_data, markers_ROI, ############# WRONG suid for NCOCS
+markers_ROI <- right_join(case_ctrl_data, markers_ROI, ############# WRONG suid for NCOCS
                      by = "suid")
 ROI_global <- full_join(case_ctrl_data, ROI_global,
-                     by = "suid")
+                        by = "suid")
 
-
-saveRDS(ROI_global, file = "ROI_global.rds") ############# WRONG suid for NCOCS
-saveRDS(markers, file = "markers_ROI.rds")
+saveRDS(ROI_global, file = "ROI_global.rds")
+saveRDS(markers_ROI, file = "markers_ROI.rds")
 
 
 # End cleaning
