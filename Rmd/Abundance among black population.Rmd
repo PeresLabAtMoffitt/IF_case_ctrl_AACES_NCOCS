@@ -1,0 +1,1983 @@
+---
+title: "AACES"
+author: "Christelle Colin-Leitzinger"
+date: "`r Sys.Date()`"
+output: 
+  html_document:
+    toc: true
+    toc_float: true
+    toc_collapsed: false
+    theme: cerulean #darkly
+    highlight: pygments
+    df_print: paged
+editor_options: 
+  chunk_output_type: console
+---
+
+<style type="text/css">
+h1.title {
+  font-size: 25px;
+}
+.figure {
+   margin-top: 25px;
+   <!-- margin-bottom: 100px; -->
+}
+
+table {
+    margin-top: 25px;
+    <!-- margin-bottom: 100px !important; -->
+}
+</style>
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE,
+                      warning = FALSE,
+                      message = FALSE,
+                      cache = FALSE,
+                      # fig.width = 7, fig.height = 5, 
+                      fig.align='center'#, fig.show='hold'
+                      )
+options(gtsummary_print_engine = "gt")
+# options(gtsummary.as_gt.addl_cmds = "gt::tab_options(table.font.size = 14, data_row_padding = gt::px(1))")
+```
+
+<style>
+div.blue { background-color:#0099CC; border-radius: 5px; padding: 20px; font-size: 38px}
+</style>
+<div class = "blue">
+
+<span style="color: white;">AACES tumor immunity and survival only among black women</span>
+
+</div>
+<br>
+
+```{r library, include=FALSE}
+# library(drake)
+library(tidyverse)
+library(data.table)
+# library(VennDiagram)
+library(gtsummary)
+library(survival)
+library(survminer)
+library(psych)
+# library(corrplot)
+# library(ggcorrplot)
+library(mclust)
+library(sensemakr)
+library(gplots)
+library(ggridges)
+library(ComplexHeatmap)
+```
+
+```{r load}
+# Remove these IDs from whole data because 2 are NAs in BMI and 2 are there matched
+# remove_id_bmi <- paste0(c("45142", "45809", "181810", "42204"), collapse = "|")
+
+ROI_global <- readRDS("/Users/colinccm/Documents/GitHub/Peres/IF_case_ctrl_AACES_NCOCS/ROI_global.rds")
+markers_ROI <- readRDS("/Users/colinccm/Documents/GitHub/Peres/IF_case_ctrl_AACES_NCOCS/markers_ROI.rds")
+
+# clinical_data <- readRDS("/Users/colinccm/Documents/GitHub/Peres/IF_AACES_NCOCS/clinical_data.rds")
+
+# # Rewove patients not matched or lost match
+# ROI_global <- left_join(ROI_global, clinical_data, by="suid") %>%
+#   filter(!image_tag %in% c("Peres_P1_150163  3D_[44113,18531].tif", 
+#                            "Peres_P1_43004 A2_[45654,5840].tif",
+#                            "Peres_P1_43773 D2_[60849,15244].tif", 
+#                          "Peres_P1_AACES 130033_[37754,17929].tif",
+#                          "Peres_P1_AACES 130033_[38351,13944].tif"
+#                            )) %>% 
+#   select(suid, pair_id, everything()) %>% 
+#   drop_na(pair_id) %>% 
+#   group_by(pair_id) %>% 
+#   mutate(have_a_match = dense_rank(interaction(suid, pair_id))) %>% 
+#   group_by(pair_id) %>% 
+#   mutate(is_paired = max(have_a_match)) %>% 
+#   filter(is_paired == 2) %>% 
+#   select(pair_id, everything(), -c(is_paired, have_a_match)) %>% 
+#   ungroup()
+# 
+# # markers_match <- readRDS("/Users/colinccm/Documents/GitHub/Peres/IF_AACES_NCOCS/markers_match.rds")
+# path <- fs::path("","Volumes","Peres_Research","Christelle Colin-Leitzinger", "IF_AACES_NCOCS", "Disparities manuscript", "Figures")
+# 
+# # Remove these IDs from peripheral ROI because 2 are NAs and 2 are there matched
+# remove_id <- paste0(c("110318", "43220", "42774", "46619"), collapse = "|")
+```
+
+I removed 4 patients who don't have intratumoral ROI in the new AACES date
+```{r remove patients}
+# Remove these IDs with no intratumoral ROI
+remove_id <- paste0(c("110362", "161094", "190155", "190176"), collapse = "|")
+
+
+ROI_global <- ROI_global %>% 
+  filter(site == "AAS" & race == "Black") %>% 
+  filter(!str_detect(suid, remove_id))
+
+markers_ROI <- markers_ROI %>% 
+  filter(site == "AAS" & race == "Black") %>%
+  filter(!str_detect(suid, remove_id))
+```
+<br>
+<br>
+
+***
+
+# Supp. ICC
+
+```{r}
+# ICC_df <- data.frame(matrix(nrow=1, ncol=0))
+# new_icc <- function(ROI_global) {
+#   icc_overall <- ROI_global %>%
+#     select(suid, image_tag,
+#            contains("percent"))
+#   class(icc_overall) <- "data.frame"
+#   
+#   icc_intrat <- ROI_global %>%
+#     filter(annotation == "Intratumoral") %>%
+#     select(suid, image_tag,
+#            contains("percent"))
+#   class(icc_intrat) <- "data.frame"
+#   
+#   icc_periph <- ROI_global %>%
+#     filter(annotation == "Peripheral") %>%
+#     select(suid, image_tag,
+#            contains("percent"))
+#   class(icc_periph) <- "data.frame"
+#   
+#   fct_icc <- function(data) {
+#     ICC_data <- data.frame(matrix(nrow = 1, ncol = 0))
+#     lb_data <- data.frame(matrix(nrow = 1, ncol = 0))
+#     up_data <- data.frame(matrix(nrow = 1, ncol = 0))
+#     for (i in 1:length(colnames(data))) {
+#       rad <- data %>% select(suid)
+#       
+#       if (class(data[, i]) == "numeric" |
+#           class(data[, i]) == "integer") {
+#         ICC_df <- cbind(rad, value = data[, i])
+#         ICC_df <- ICC_df %>%
+#           mutate(Slide = "Slide0") %>%
+#           group_by(suid) %>%
+#           mutate(n = row_number(suid)) %>%
+#           ungroup() %>%
+#           unite(slide_id, Slide:n, sep = "", remove = TRUE, na.rm = TRUE) %>%
+#           pivot_wider(names_from = slide_id, values_from = value) %>%
+#           select(c(starts_with("slide")))
+#         
+#         ICC <- ICC(ICC_df)$results[4, 2]
+#         ICC_data <- cbind(ICC_data, ICC)
+#         ICC <- ICC(ICC_df)$results[4, 7]
+#         lb_data <- cbind(lb_data, ICC)
+#         ICC <- ICC(ICC_df)$results[4, 8]
+#         up_data <- cbind(up_data, ICC)
+#         
+#       }
+#       
+#     }
+#     ICCC_data <- bind_rows(ICC_data, lb_data, up_data)
+#     colnames(ICCC_data) <- colnames(data)[3:ncol(data)]
+#     ICCC_data <- as.data.frame(t(ICCC_data)) %>%
+#       mutate(ICC_lb_up = paste(round(V1, 2), " (", round(V2, 2), ", ", round(V3, 2), ")", sep = "")) %>%
+#       select(ICC_lb_up)
+#   }
+#   
+#   icc_overall <-
+#     fct_icc(icc_overall) %>% rename(Overall = "ICC_lb_up")
+#   icc_intrat <-
+#     fct_icc(icc_intrat) %>% rename(Intratumoral = "ICC_lb_up")
+#   icc_periph <-
+#     fct_icc(icc_periph) %>% rename(Peripheral = "ICC_lb_up")
+#   
+#   icc_data <- cbind(icc_intrat, icc_periph)
+#   
+# }
+# 
+# b <- new_icc(ROI_global)
+# write_rds(b, "ICC.rds")
+b <- readRDS("/Users/colinccm/Documents/GitHub/Peres/IF_case_ctrl_AACES_NCOCS/ICC.rds")
+b
+
+```
+<br>
+<br>
+
+***
+
+# Table 1. Patient characteristics overall and by race/ethnicity
+
+**All model are NOT adjusted for bmi, smoker and diab**
+
+```{r}
+ROI_global %>% 
+  distinct(suid, .keep_all = TRUE) %>% 
+  select(refage, refage_cat, 
+         stage, histology,
+         histotype1, histotype2,
+         BMI_recent, BMI_recent_grp,
+        smoker, diab) %>% 
+  tbl_summary(statistic = list(all_continuous() ~ "{mean} ({sd})"),
+              label = list(refage ~ "Age at diagnosis", refage_cat ~ "Age at diagnosis category",
+                           diab ~ "Diabetes", stage ~ "Stage", histology ~ "Histology",
+                           # dblkstat_CA125 ~ "Debulking Status", adj ~ "Adjuvant chemotherapy",
+                           smoker ~ "Smoking status"),
+              type = list(diab ~ "categorical"),
+              digits = list(all_continuous() ~ 1)) %>%
+      modify_header(list(label ~ "**Patient characteristics**"#, all_stat_cols() ~ "**{level}**, N = {n}")
+                    )) %>%
+  bold_labels()
+
+ROI_i <- ROI_global %>% 
+  filter(annotation == "Intratumoral")
+ROI_p <- ROI_global %>% 
+  filter(annotation == "Peripheral")
+```
+<br>
+
+
+***
+
+# Figure Slides characteristics
+
+<!-- **Leave 4 patients no BMI**   -->
+
+Here each slide is represented (feed 3 values for intratumoral ROI and 3 values for peripheral ROI per patient)  
+The average % tumor in the intratumoral ROIs is `r round(mean(ROI_i$percent_tumor),2)`% and `r round(mean(ROI_i$percent_stroma),2)`% stroma, while for the peripheral ROIs, the average% tumor is `r round(mean(ROI_p$percent_tumor),2)`% and `r round(mean(ROI_p$percent_stroma),2)`% for stroma** 
+
+```{r}
+p1 <- ROI_global %>% 
+  filter(annotation == "Intratumoral") %>% 
+  mutate(Tumor = "Tumor") %>% 
+  mutate(Stroma = "Stroma") %>% 
+  ggplot()+
+  geom_violin(aes(x=Tumor, y=percent_tumor), scale = "count")+
+  geom_boxplot(aes(x=Tumor, y=percent_tumor), width=.1) +
+  geom_violin(aes(x=Stroma, y=percent_stroma), scale = "count") +
+  geom_boxplot(aes(x=Stroma, y=percent_stroma), width=.1) +
+  theme_classic2()+
+  labs(x="Cell type", y=NULL, title="Intratumoral \nROIs")
+p2 <- ROI_global %>% 
+  filter(annotation == "Peripheral") %>% 
+  mutate(Tumor = "Tumor") %>% 
+  mutate(Stroma = "Stroma") %>% 
+  ggplot()+
+  geom_violin(aes(x=Tumor, y=percent_tumor), scale = "count")+
+  geom_boxplot(aes(x=Tumor, y=percent_tumor), width=.1) +
+  geom_violin(aes(x=Stroma, y=percent_stroma), scale = "count") +
+  geom_boxplot(aes(x=Stroma, y=percent_stroma), width=.1) +
+  theme_classic2()+
+  labs(x="Cell type", y=NULL, title="Peripheral \nROIs")
+
+# tiff(paste0(path, "/violin plot distribution tumor and stroma cells in ROIs intra-periph.tiff"))
+gridExtra::grid.arrange(p1, p2, ncol = 2, 
+                        top = "% of Cells Present in", left = "% Cells per samples", 
+                        bottom = "Data on Race-Matched Patients")
+# dev.off()
+```
+<br>
+
+***
+<br>
+
+# 1.Distribution of immune cell abundance, immune signatures, and the immunoscore by race/ethnicity
+
+Here I used the mean per patients
+
+<!-- **Leave 4 patients no BMI**   -->
+```{r Table tumor cells in ROIs}
+# reset_gtsummary_theme()
+# theme_gtsummary_journal(journal = "jama")
+tbl1 <-
+  markers_ROI %>% 
+  select(tumor_percent_cd3_i, tumor_percent_cd3plus_cd8plus_i, tumor_percent_cd3plus_foxp3plus_i, 
+              tumor_percent_cd11b_i, tumor_percent_cd11bplus_cd15plus_i) %>% 
+  rename(percent_cd3_tumor = tumor_percent_cd3_i, percent_cd3plus_cd8plus_tumor = tumor_percent_cd3plus_cd8plus_i,
+         percent_cd3plus_foxp3plus_tumor = tumor_percent_cd3plus_foxp3plus_i, 
+         percent_cd11b_tumor = tumor_percent_cd11b_i, percent_cd11bplus_cd15plus_tumor = tumor_percent_cd11bplus_cd15plus_i) %>% 
+  tbl_summary(statistic = list(all_continuous() ~ "{mean} ({sd})"),
+              label = list(percent_cd3_tumor ~ "percent cd3+", percent_cd3plus_cd8plus_tumor ~ "percent cd3+/cd8+",
+                           percent_cd3plus_foxp3plus_tumor ~ "percent cd3+/FoxP3+",
+                           percent_cd11b_tumor ~ "percent cd11b+", percent_cd11bplus_cd15plus_tumor ~ "percent cd11b+/cd15+"),
+              missing = "no", digits = list(all_continuous() ~ 2)) %>% 
+  bold_labels()
+tbl2 <-
+  markers_ROI %>% 
+  select(stroma_percent_cd3_i, stroma_percent_cd3plus_cd8plus_i, stroma_percent_cd3plus_foxp3plus_i, 
+              stroma_percent_cd11b_i, stroma_percent_cd11bplus_cd15plus_i) %>% 
+  rename(percent_cd3_stroma = stroma_percent_cd3_i, percent_cd3plus_cd8plus_stroma = stroma_percent_cd3plus_cd8plus_i,
+         percent_cd3plus_foxp3plus_stroma = stroma_percent_cd3plus_foxp3plus_i, 
+         percent_cd11b_stroma = stroma_percent_cd11b_i, percent_cd11bplus_cd15plus_stroma = stroma_percent_cd11bplus_cd15plus_i) %>% 
+  tbl_summary(statistic = list(all_continuous() ~ "{mean} ({sd})"),
+                           label = list(percent_cd3_stroma ~ "percent cd3+", percent_cd3plus_cd8plus_stroma ~ "percent cd3+/cd8+",
+                           percent_cd3plus_foxp3plus_stroma ~ "percent cd3+/FoxP3+",
+                           percent_cd11b_stroma ~ "percent cd11b+", percent_cd11bplus_cd15plus_stroma ~ "percent cd11b+/cd15+"),
+              missing = "no", digits = list(all_continuous() ~ 2)) %>% 
+  bold_labels()
+tbl3 <-
+  markers_ROI %>% 
+  select(total_percent_cd3_i, total_percent_cd3plus_cd8plus_i, total_percent_cd3plus_foxp3plus_i, 
+              total_percent_cd11b_i, total_percent_cd11bplus_cd15plus_i) %>% 
+  rename(percent_cd3_total = total_percent_cd3_i, percent_cd3plus_cd8plus_total = total_percent_cd3plus_cd8plus_i,
+         percent_cd3plus_foxp3plus_total = total_percent_cd3plus_foxp3plus_i, 
+         percent_cd11b_total = total_percent_cd11b_i, percent_cd11bplus_cd15plus_total = total_percent_cd11bplus_cd15plus_i) %>% 
+  tbl_summary(statistic = list(all_continuous() ~ "{mean} ({sd})"),
+                           label = list(percent_cd3_total ~ "percent cd3+", percent_cd3plus_cd8plus_total ~ "percent cd3+/cd8+",
+                           percent_cd3plus_foxp3plus_total ~ "percent cd3+/FoxP3+",
+                           percent_cd11b_total ~ "percent cd11b+", percent_cd11bplus_cd15plus_total ~ "percent cd11b+/cd15+"),
+              missing = "no", digits = list(all_continuous() ~ 2)) %>% 
+  bold_labels()
+
+
+tbl5 <-
+  markers_ROI %>% 
+  select(tumor_percent_cd3_p, tumor_percent_cd3plus_cd8plus_p, tumor_percent_cd3plus_foxp3plus_p, 
+              tumor_percent_cd11b_p, tumor_percent_cd11bplus_cd15plus_p) %>% 
+  rename(percent_cd3_tumor = tumor_percent_cd3_p, percent_cd3plus_cd8plus_tumor = tumor_percent_cd3plus_cd8plus_p,
+         percent_cd3plus_foxp3plus_tumor = tumor_percent_cd3plus_foxp3plus_p, 
+         percent_cd11b_tumor = tumor_percent_cd11b_p, percent_cd11bplus_cd15plus_tumor = tumor_percent_cd11bplus_cd15plus_p) %>% 
+  tbl_summary(statistic = list(all_continuous() ~ "{mean} ({sd})"),
+                            label = list(percent_cd3_tumor ~ "percent cd3+", percent_cd3plus_cd8plus_tumor ~ "percent cd3+/cd8+",
+                           percent_cd3plus_foxp3plus_tumor ~ "percent cd3+/FoxP3+",
+                           percent_cd11b_tumor ~ "percent cd11b+", percent_cd11bplus_cd15plus_tumor ~ "percent cd11b+/cd15+"),
+              missing = "no", digits = list(all_continuous() ~ 2)) %>% 
+  bold_labels()
+tbl6 <-
+  markers_ROI %>% 
+  select(stroma_percent_cd3_p, stroma_percent_cd3plus_cd8plus_p, stroma_percent_cd3plus_foxp3plus_p, 
+              stroma_percent_cd11b_p, stroma_percent_cd11bplus_cd15plus_p) %>% 
+  rename(percent_cd3_stroma = stroma_percent_cd3_p, percent_cd3plus_cd8plus_stroma = stroma_percent_cd3plus_cd8plus_p,
+         percent_cd3plus_foxp3plus_stroma = stroma_percent_cd3plus_foxp3plus_p, 
+         percent_cd11b_stroma = stroma_percent_cd11b_p, percent_cd11bplus_cd15plus_stroma = stroma_percent_cd11bplus_cd15plus_p) %>% 
+  tbl_summary(statistic = list(all_continuous() ~ "{mean} ({sd})"),
+                            label = list(percent_cd3_stroma ~ "percent cd3+", percent_cd3plus_cd8plus_stroma ~ "percent cd3+/cd8+",
+                           percent_cd3plus_foxp3plus_stroma ~ "percent cd3+/FoxP3+",
+                           percent_cd11b_stroma ~ "percent cd11b+", percent_cd11bplus_cd15plus_stroma ~ "percent cd11b+/cd15+"),
+              missing = "no", digits = list(all_continuous() ~ 2)) %>% 
+  bold_labels()
+tbl7 <-
+  markers_ROI %>% 
+  select(total_percent_cd3_p, total_percent_cd3plus_cd8plus_p, total_percent_cd3plus_foxp3plus_p, 
+              total_percent_cd11b_p, total_percent_cd11bplus_cd15plus_p) %>% 
+  rename(percent_cd3_total = total_percent_cd3_p, percent_cd3plus_cd8plus_total = total_percent_cd3plus_cd8plus_p,
+         percent_cd3plus_foxp3plus_total = total_percent_cd3plus_foxp3plus_p, 
+         percent_cd11b_total = total_percent_cd11b_p, percent_cd11bplus_cd15plus_total = total_percent_cd11bplus_cd15plus_p) %>% 
+  tbl_summary(statistic = list(all_continuous() ~ "{mean} ({sd})"),
+                            label = list(percent_cd3_total ~ "percent cd3+", percent_cd3plus_cd8plus_total ~ "percent cd3+/cd8+",
+                           percent_cd3plus_foxp3plus_total ~ "percent cd3+/FoxP3+",
+                           percent_cd11b_total ~ "percent cd11b+", percent_cd11bplus_cd15plus_total ~ "percent cd11b+/cd15+"),
+              missing = "no", digits = list(all_continuous() ~ 2)) %>% 
+  bold_labels()
+
+tbl4 <- tbl_merge(list(tbl1, tbl5), tab_spanner = c("**Intratumoral**", "**Peripheral**"))
+tbl8 <- tbl_merge(list(tbl2, tbl6), tab_spanner = c("**Intratumoral**", "**Peripheral**"))
+tbl9 <- tbl_merge(list(tbl3, tbl7), tab_spanner = c("**Intratumoral**", "**Peripheral**"))
+
+
+tbl10 <- tbl_stack(list(tbl4, tbl8, tbl9), group_header = c("Tumor", "Stroma", "Overall"))
+tbl10
+
+# gt::gtsave(tbl10, paste0(path, "/Table 2a Distribution of immune cell abundance in ROIs_pdf"))
+
+# tbl8 <- tbl_stack(list(tbl5, tbl6, tbl7), group_header = c("Tumor", "Stroma", "Overall"))
+# tbl8
+# 
+# tbl <- tbl_merge(list(tbl4, tbl8), tab_spanner = c("**Intratumoral**", "**Peripheral**"))# %>%
+#   # modify_spanning_header(everything() ~ "Overall (tmor+stroma) ROIs") %>% as_gt()
+# tbl
+```
+<br>
+
+## Overall
+```{r, fig.width=12}
+markers_ROI %>% 
+  select(
+  "tumor_percent_cd3_i", "tumor_percent_cd3plus_cd8plus_i", "tumor_percent_cd3plus_foxp3plus_i", "tumor_percent_cd11b_i", "tumor_percent_cd11bplus_cd15plus_i",
+                 "stroma_percent_cd3_i", "stroma_percent_cd3plus_cd8plus_i", "stroma_percent_cd3plus_foxp3plus_i", "stroma_percent_cd11b_i", "stroma_percent_cd11bplus_cd15plus_i",
+                 "tumor_percent_cd3_p", "tumor_percent_cd3plus_cd8plus_p", "tumor_percent_cd3plus_foxp3plus_p", "tumor_percent_cd11b_p", "tumor_percent_cd11bplus_cd15plus_p",
+                 "stroma_percent_cd3_p", "stroma_percent_cd3plus_cd8plus_p", "stroma_percent_cd3plus_foxp3plus_p", "stroma_percent_cd11b_p", "stroma_percent_cd11bplus_cd15plus_p"
+) %>% 
+  pivot_longer(cols = everything()) %>% 
+  ggplot(aes(x=name, y=value, color=name))+
+  geom_boxplot()+
+  theme_classic()+
+  # coord_flip() +
+  ggforce::facet_zoom(ylim = c(0, 8), zoom.size = 1)
+```
+
+## K99/R00
+```{r, fig.width=12}
+markers_ROI %>% 
+  filter(version == "K99/R00") %>% 
+  select(
+  "tumor_percent_cd3_i", "tumor_percent_cd3plus_cd8plus_i", "tumor_percent_cd3plus_foxp3plus_i", "tumor_percent_cd11b_i", "tumor_percent_cd11bplus_cd15plus_i",
+                 "stroma_percent_cd3_i", "stroma_percent_cd3plus_cd8plus_i", "stroma_percent_cd3plus_foxp3plus_i", "stroma_percent_cd11b_i", "stroma_percent_cd11bplus_cd15plus_i",
+                 "tumor_percent_cd3_p", "tumor_percent_cd3plus_cd8plus_p", "tumor_percent_cd3plus_foxp3plus_p", "tumor_percent_cd11b_p", "tumor_percent_cd11bplus_cd15plus_p",
+                 "stroma_percent_cd3_p", "stroma_percent_cd3plus_cd8plus_p", "stroma_percent_cd3plus_foxp3plus_p", "stroma_percent_cd11b_p", "stroma_percent_cd11bplus_cd15plus_p"
+) %>% 
+  pivot_longer(cols = everything()) %>% 
+  ggplot(aes(x=name, y=value, color=name))+
+  geom_boxplot()+
+  theme_classic()+
+  # coord_flip() +
+  ggforce::facet_zoom(ylim = c(0, 8), zoom.size = 1)
+```
+
+## AACES2
+```{r, fig.width=12}
+markers_ROI %>% 
+  filter(version == "AACES2") %>% 
+  select(
+  "tumor_percent_cd3_i", "tumor_percent_cd3plus_cd8plus_i", "tumor_percent_cd3plus_foxp3plus_i", "tumor_percent_cd11b_i", "tumor_percent_cd11bplus_cd15plus_i",
+                 "stroma_percent_cd3_i", "stroma_percent_cd3plus_cd8plus_i", "stroma_percent_cd3plus_foxp3plus_i", "stroma_percent_cd11b_i", "stroma_percent_cd11bplus_cd15plus_i",
+                 "tumor_percent_cd3_p", "tumor_percent_cd3plus_cd8plus_p", "tumor_percent_cd3plus_foxp3plus_p", "tumor_percent_cd11b_p", "tumor_percent_cd11bplus_cd15plus_p",
+                 "stroma_percent_cd3_p", "stroma_percent_cd3plus_cd8plus_p", "stroma_percent_cd3plus_foxp3plus_p", "stroma_percent_cd11b_p", "stroma_percent_cd11bplus_cd15plus_p"
+) %>% 
+  pivot_longer(cols = everything()) %>% 
+  ggplot(aes(x=name, y=value, color=name))+
+  geom_boxplot()+
+  theme_classic()+
+  # coord_flip() +
+  ggforce::facet_zoom(ylim = c(0, 8), zoom.size = 1)
+```
+
+
+## 2.Categories
+
+```{r Table classification cells in ROIs}
+tbl1 <-
+  markers_ROI %>% 
+  select(cd3_tumor_i, cd3plus_cd8plus_tumor_i, cd3plus_foxp3plus_tumor_i, 
+              cd11b_tumor_i, cd11bplus_cd15plus_tumor_i) %>% 
+  rename(cd3_tumor = cd3_tumor_i, cd3plus_cd8plus_tumor = cd3plus_cd8plus_tumor_i,
+         cd3plus_foxp3plus_tumor = cd3plus_foxp3plus_tumor_i, 
+         cd11b_tumor = cd11b_tumor_i, cd11bplus_cd15plus_tumor = cd11bplus_cd15plus_tumor_i) %>% 
+  tbl_summary(
+              statistic = list(all_continuous() ~ "{mean} ({sd})"),
+              label = list(cd3_tumor ~ "percent cd3+", cd3plus_cd8plus_tumor ~ "percent cd3+/cd8+",
+                           cd3plus_foxp3plus_tumor ~ "percent cd3+/FoxP3+",
+                           cd11b_tumor ~ "percent cd11b+", cd11bplus_cd15plus_tumor ~ "percent cd11b+/cd15+"),
+              missing = "no") %>% 
+  bold_labels()
+tbl2 <-
+  markers_ROI %>% 
+  select(cd3_stroma_i, cd3plus_cd8plus_stroma_i, cd3plus_foxp3plus_stroma_i, 
+              cd11b_stroma_i, cd11bplus_cd15plus_stroma_i) %>% 
+  rename(cd3_stroma = cd3_stroma_i, cd3plus_cd8plus_stroma = cd3plus_cd8plus_stroma_i,
+         cd3plus_foxp3plus_stroma = cd3plus_foxp3plus_stroma_i, 
+cd11b_stroma = cd11b_stroma_i, cd11bplus_cd15plus_stroma = cd11bplus_cd15plus_stroma_i) %>% 
+  tbl_summary(
+              statistic = list(all_continuous() ~ "{mean} ({sd})"),
+                           label = list(cd3_stroma ~ "percent cd3+", cd3plus_cd8plus_stroma ~ "percent cd3+/cd8+",
+                           cd3plus_foxp3plus_stroma ~ "percent cd3+/FoxP3+",
+                           cd11b_stroma ~ "percent cd11b+", cd11bplus_cd15plus_stroma ~ "percent cd11b+/cd15+"),
+              missing = "no") %>% 
+  bold_labels()
+tbl3 <-
+  markers_ROI %>% 
+  select(cd3_total_i, cd3plus_cd8plus_total_i, cd3plus_foxp3plus_total_i, 
+              cd11b_total_i, cd11bplus_cd15plus_total_i) %>% 
+  rename(cd3_total = cd3_total_i, cd3plus_cd8plus_total = cd3plus_cd8plus_total_i,
+         cd3plus_foxp3plus_total = cd3plus_foxp3plus_total_i, 
+cd11b_total = cd11b_total_i, cd11bplus_cd15plus_total = cd11bplus_cd15plus_total_i) %>% 
+  tbl_summary(
+              statistic = list(all_continuous() ~ "{mean} ({sd})"),
+                           label = list(cd3_total ~ "percent cd3+", cd3plus_cd8plus_total ~ "percent cd3+/cd8+",
+                           cd3plus_foxp3plus_total ~ "percent cd3+/FoxP3+",
+                           cd11b_total ~ "percent cd11b+", cd11bplus_cd15plus_total ~ "percent cd11b+/cd15+"),
+              missing = "no") %>% 
+  bold_labels()
+
+
+tbl5 <-
+  markers_ROI %>% 
+  select(cd3_tumor_p, cd3plus_cd8plus_tumor_p, cd3plus_foxp3plus_tumor_p, 
+              cd11b_tumor_p, cd11bplus_cd15plus_tumor_p) %>% 
+  rename(cd3_tumor = cd3_tumor_p, cd3plus_cd8plus_tumor = cd3plus_cd8plus_tumor_p,
+         cd3plus_foxp3plus_tumor = cd3plus_foxp3plus_tumor_p, 
+cd11b_tumor = cd11b_tumor_p, cd11bplus_cd15plus_tumor = cd11bplus_cd15plus_tumor_p) %>% 
+  tbl_summary(
+              statistic = list(all_continuous() ~ "{mean} ({sd})"),
+                            label = list(cd3_tumor ~ "percent cd3+", cd3plus_cd8plus_tumor ~ "percent cd3+/cd8+",
+                           cd3plus_foxp3plus_tumor ~ "percent cd3+/FoxP3+",
+                           cd11b_tumor ~ "percent cd11b+", cd11bplus_cd15plus_tumor ~ "percent cd11b+/cd15+"),
+              missing = "no") %>% 
+  bold_labels()
+tbl6 <-
+  markers_ROI %>% 
+  select(cd3_stroma_p, cd3plus_cd8plus_stroma_p, cd3plus_foxp3plus_stroma_p, 
+              cd11b_stroma_p, cd11bplus_cd15plus_stroma_p) %>% 
+  rename(cd3_stroma = cd3_stroma_p, cd3plus_cd8plus_stroma = cd3plus_cd8plus_stroma_p,
+         cd3plus_foxp3plus_stroma = cd3plus_foxp3plus_stroma_p, 
+cd11b_stroma = cd11b_stroma_p, cd11bplus_cd15plus_stroma = cd11bplus_cd15plus_stroma_p) %>% 
+  tbl_summary(
+              statistic = list(all_continuous() ~ "{mean} ({sd})"),
+                            label = list(cd3_stroma ~ "percent cd3+", cd3plus_cd8plus_stroma ~ "percent cd3+/cd8+",
+                           cd3plus_foxp3plus_stroma ~ "percent cd3+/FoxP3+",
+                           cd11b_stroma ~ "percent cd11b+", cd11bplus_cd15plus_stroma ~ "percent cd11b+/cd15+"),
+              missing = "no") %>% 
+  bold_labels()
+tbl7 <-
+  markers_ROI %>% 
+  select(cd3_total_p, cd3plus_cd8plus_total_p, cd3plus_foxp3plus_total_p, 
+              cd11b_total_p, cd11bplus_cd15plus_total_p) %>% 
+  rename(cd3_total = cd3_total_p, cd3plus_cd8plus_total = cd3plus_cd8plus_total_p,
+         cd3plus_foxp3plus_total = cd3plus_foxp3plus_total_p, 
+cd11b_total = cd11b_total_p, cd11bplus_cd15plus_total = cd11bplus_cd15plus_total_p) %>% 
+  tbl_summary(
+              statistic = list(all_continuous() ~ "{mean} ({sd})"),
+                            label = list(cd3_total ~ "percent cd3+", cd3plus_cd8plus_total ~ "percent cd3+/cd8+",
+                           cd3plus_foxp3plus_total ~ "percent cd3+/FoxP3+",
+                           cd11b_total ~ "percent cd11b+", cd11bplus_cd15plus_total ~ "percent cd11b+/cd15+"),
+              missing = "no") %>% 
+  bold_labels()
+
+tbl4 <- tbl_merge(list(tbl1, tbl5), tab_spanner = c("**Intratumoral**", "**Peripheral**"))
+tbl8 <- tbl_merge(list(tbl2, tbl6), tab_spanner = c("**Intratumoral**", "**Peripheral**"))
+tbl9 <- tbl_merge(list(tbl3, tbl7), tab_spanner = c("**Intratumoral**", "**Peripheral**"))
+
+
+tbl10 <- tbl_stack(list(tbl4, tbl8, tbl9), group_header = c("Tumor", "Stroma", "Overall")) %>% as_gt()
+    # gt::tab_source_note(gt::md('**"Low" represent categories with less than 1% immune cells detected while "Absent" represent categories with no immune cells detected**'))
+
+tbl10
+# gt::gtsave(tbl10, paste0(path, "/Table 2b Distribution of immune cell abundance absent_1percent categories in ROIs_pdf"))
+```
+<br>
+
+***
+
+# Immunoscore
+
+Immunoscore calculated on the mean of the 3 value per patient.
+```{r Table immunoscore}
+tbl <- markers_ROI %>% 
+  select(immunoscore_patients, immunoscore_2018lancet_patients) %>% 
+  tbl_summary(
+              label = list(immunoscore_patients ~ "classic immunoscore", 
+                           immunoscore_2018lancet_patients ~ "immunoscore lancet"),
+              missing = "no") %>% 
+  bold_labels()
+tbl
+# gt::gtsave(tbl10, paste0(path, "/Table 2c Immunoscore in ROIs_pdf"))
+```
+<b>
+
+***
+<br>
+
+# Cluster  
+
+
+
+
+## Cluster with a non-defined number of cluster **when looking at all intra/periph + tumor/stroma (cd3, cd3/8, cd3/FoxP3, cd11b, cd11b/15)**  
+**Each markers are scaled, default method is center**  
+
+<!-- **Leave 4 patients no BMI** -->
+
+```{r clustering}
+set.seed(1234)
+
+### Cluster for stroma/tumor in the intratumoral/peritumoral ROIs 
+clust_markers <- markers_ROI %>% 
+  filter(!is.na(markers_ROI$tumor_percent_cd3plus_cd8plus_i) & !is.na(markers_ROI$tumor_percent_cd3plus_cd8plus_p)) %>% 
+  select(suid, c("tumor_percent_cd3_i", "tumor_percent_cd3plus_cd8plus_i", "tumor_percent_cd3plus_foxp3plus_i", "tumor_percent_cd11b_i", "tumor_percent_cd11bplus_cd15plus_i",
+                 "stroma_percent_cd3_i", "stroma_percent_cd3plus_cd8plus_i", "stroma_percent_cd3plus_foxp3plus_i", "stroma_percent_cd11b_i", "stroma_percent_cd11bplus_cd15plus_i",
+                 "tumor_percent_cd3_p", "tumor_percent_cd3plus_cd8plus_p", "tumor_percent_cd3plus_foxp3plus_p", "tumor_percent_cd11b_p", "tumor_percent_cd11bplus_cd15plus_p",
+                 "stroma_percent_cd3_p", "stroma_percent_cd3plus_cd8plus_p", "stroma_percent_cd3plus_foxp3plus_p", "stroma_percent_cd11b_p", "stroma_percent_cd11bplus_cd15plus_p"
+                 ))
+
+clust <- Mclust(scale(clust_markers[,c(2:ncol(clust_markers))])#, G = 4
+                )
+summary(clust)
+
+X <- clust_markers[,-1]
+BIC <- mclustBIC(X)
+plot(BIC)
+summary(BIC)
+
+clust_markers$clusters_all_IandP <- clust$classification
+clust_markers$clusters_all_IandP <- factor(clust_markers$clusters_all_IandP,
+                                           levels = c(1, 2, 3, 4, 5
+                                                      ),
+                                           labels = c("mid", "mid-low", "mid-high", "high", "low"))
+
+clust_markers <- clust_markers %>% 
+  mutate(clusters_all_IandP = 
+           factor(clusters_all_IandP, 
+                  levels = c("low", "mid-low", "mid", "mid-high", "high")))
+
+clust_markers %>% 
+tidyr::gather(key = "markers_cat", value = "value",
+              c("tumor_percent_cd3_i":"stroma_percent_cd11bplus_cd15plus_i")) %>% 
+  select(suid, clusters_all_IandP, markers_cat, value) %>% 
+  ggplot(aes(x=suid, y=value, group=markers_cat,  color=markers_cat))+
+  geom_boxplot()+
+  facet_grid(.~ clusters_all_IandP)
+clust_markers %>% 
+tidyr::gather(key = "markers_cat", value = "value",
+              c("tumor_percent_cd3_p":"stroma_percent_cd11bplus_cd15plus_p")) %>% 
+  select(suid, clusters_all_IandP, markers_cat, value) %>% 
+  ggplot(aes(x=suid, y=value, group=markers_cat,  color=markers_cat))+
+  geom_boxplot()+
+  facet_grid(.~ clusters_all_IandP)
+
+markers_ROI <- full_join(markers_ROI, clust_markers %>% select(suid, clusters_all_IandP), by = "suid")
+```
+<br>
+
+```{r Table cluster}
+tbl <- markers_ROI %>% 
+  select(clusters_all_IandP) %>% 
+  tbl_summary(
+              label = list(clusters_all_IandP ~ "intra+periph, tumor+stroma")) %>% 
+  bold_labels()
+tbl
+# gt::gtsave(tbl, paste0(path, "/Table 2d Cluster in ROIs_pdf"))
+```
+
+## Visualisation abundance in mclust groups
+
+### In the methods/caption for the figure need to say standardized by the median and MAD
+
+#### Intratumoral
+```{r heatmap intra, fig.width=12}
+marker.exp <- markers_ROI %>% 
+  filter(!is.na(tumor_percent_cd3_p)) %>% 
+  select(c("suid", "tumor_percent_cd3_i", "tumor_percent_cd3plus_cd8plus_i", "tumor_percent_cd3plus_foxp3plus_i", 
+                               "tumor_percent_cd11b_i", "tumor_percent_cd11bplus_cd15plus_i",
+                               "stroma_percent_cd3_i", "stroma_percent_cd3plus_cd8plus_i", "stroma_percent_cd3plus_foxp3plus_i",
+                               "stroma_percent_cd11b_i", "stroma_percent_cd11bplus_cd15plus_i",
+                               "clusters_all_IandP")) %>% 
+  arrange(clusters_all_IandP, stroma_percent_cd3_i, tumor_percent_cd3_i, 
+          tumor_percent_cd3plus_foxp3plus_i, tumor_percent_cd11bplus_cd15plus_i)
+
+marker.exp1 <- marker.exp %>%
+  unite(suid, c(suid, clusters_all_IandP), sep = "_", remove = TRUE) %>%
+  `row.names<-`(.$suid) %>%
+  select(-c(suid, starts_with("cd")))
+
+sqrt.markers <- sqrt(marker.exp1[,c(1:length(marker.exp1))])
+
+z_sqrt.markers <- sqrt.markers %>% 
+  mutate(mad_tumor_percent_cd3_i = mad((tumor_percent_cd3_i)) + 0.0001
+  ) %>% 
+  mutate(mad_tumor_percent_cd3plus_cd8plus_i = mad((tumor_percent_cd3plus_cd8plus_i)) + 0.0001
+  ) %>% 
+  mutate(mad_tumor_percent_cd3plus_foxp3plus_i = mad((tumor_percent_cd3plus_foxp3plus_i)) + 0.0001
+  ) %>% 
+  mutate(mad_tumor_percent_cd11b_i = mad((tumor_percent_cd11b_i)) + 0.0001
+  ) %>% 
+  mutate(mad_tumor_percent_cd11bplus_cd15plus_i = mad((tumor_percent_cd11bplus_cd15plus_i)) + 0.0001
+  ) %>% 
+  mutate(mad_stroma_percent_cd3_i = mad((stroma_percent_cd3_i)) + 0.0001
+  ) %>% 
+  mutate(mad_stroma_percent_cd3plus_cd8plus_i = mad((stroma_percent_cd3plus_cd8plus_i)) + 0.0001
+  ) %>% 
+  mutate(mad_stroma_percent_cd3plus_foxp3plus_i = mad((stroma_percent_cd3plus_foxp3plus_i)) + 0.0001
+  ) %>% 
+  mutate(mad_stroma_percent_cd11b_i = mad((stroma_percent_cd11b_i)) + 0.0001
+  ) %>% 
+  mutate(mad_stroma_percent_cd11bplus_cd15plus_i = mad((stroma_percent_cd11bplus_cd15plus_i)) + 0.0001
+  ) %>% 
+  
+  mutate(z_cd3_tumor_i = (tumor_percent_cd3_i - median(tumor_percent_cd3_i, na.rm = TRUE))/
+           mad_tumor_percent_cd3_i) %>% 
+  mutate(z_cd3plus_cd8plus_tumor_i = (tumor_percent_cd3plus_cd8plus_i - median(tumor_percent_cd3plus_cd8plus_i, na.rm = TRUE))/
+           mad_tumor_percent_cd3plus_cd8plus_i) %>% 
+  mutate(z_cd3plus_foxp3plus_tumor_i = (tumor_percent_cd3plus_foxp3plus_i - median(tumor_percent_cd3plus_foxp3plus_i, na.rm = TRUE))/
+           mad_tumor_percent_cd3plus_foxp3plus_i) %>% 
+  mutate(z_cd11b_tumor_i = (tumor_percent_cd11b_i - median(tumor_percent_cd11b_i, na.rm = TRUE))/
+           mad_tumor_percent_cd11b_i) %>% 
+  mutate(z_cd11bplus_cd15plus_tumor_i = (tumor_percent_cd11bplus_cd15plus_i - median(tumor_percent_cd11bplus_cd15plus_i, na.rm = TRUE))/
+           mad_tumor_percent_cd11bplus_cd15plus_i) %>% 
+  mutate(z_cd3_stroma_i = (stroma_percent_cd3_i - median(stroma_percent_cd3_i, na.rm = TRUE))/
+           mad_stroma_percent_cd3_i) %>% 
+  mutate(z_cd3plus_cd8plus_stroma_i = (stroma_percent_cd3plus_cd8plus_i - median(stroma_percent_cd3plus_cd8plus_i, na.rm = TRUE))/
+           mad_stroma_percent_cd3plus_cd8plus_i) %>% 
+  mutate(z_cd3plus_foxp3plus_stroma_i = (stroma_percent_cd3plus_foxp3plus_i - median(stroma_percent_cd3plus_foxp3plus_i, na.rm = TRUE))/
+           mad_stroma_percent_cd3plus_foxp3plus_i) %>% 
+  mutate(z_cd11b_stroma_i = (stroma_percent_cd11b_i - median(stroma_percent_cd11b_i, na.rm = TRUE))/
+           mad_stroma_percent_cd11b_i) %>% 
+  mutate(z_cd11bplus_cd15plus_stroma_i = (stroma_percent_cd11bplus_cd15plus_i - median(stroma_percent_cd11bplus_cd15plus_i, na.rm = TRUE))/
+           mad_stroma_percent_cd11bplus_cd15plus_i) %>% 
+  select(c(starts_with("z_")))
+
+df5 <- t(scale(as.matrix(z_sqrt.markers))) # scale for standardizing the data to make variables comparable
+
+column_ho = HeatmapAnnotation(
+                              cluster = (marker.exp$clusters_all_IandP),
+                              col = list(
+                                         cluster = c("low" = "#440154FF", "mid-low"= "#3B528BFF",
+                                                 "mid" = "#21908CFF",
+                                                  "mid-high"= "#5DC863FF", "high" = "#FDE725FF")
+                                         ),
+    na_col = "black")
+Heatmap(df5, name = " ",
+        cluster_rows = FALSE, cluster_columns = FALSE,
+        top_annotation = column_ho
+        )
+
+# column_ho = HeatmapAnnotation(race = c(marker.exp$race),
+#                               col = list(race = c("White" = "#932667FF", "Black" = "grey")),
+    # na_col = "black")
+Heatmap(df5, name = " ",
+        cluster_rows = FALSE,
+        top_annotation = column_ho)
+
+```
+
+#### Peritumoral
+```{r heatmap peri, fig.width=12}
+marker.exp <- markers_ROI[,c("suid", "tumor_percent_cd3_p", "tumor_percent_cd3plus_cd8plus_p", "tumor_percent_cd3plus_foxp3plus_p", 
+                               "tumor_percent_cd11b_p", "tumor_percent_cd11bplus_cd15plus_p",
+                               "stroma_percent_cd3_p", "stroma_percent_cd3plus_cd8plus_p", "stroma_percent_cd3plus_foxp3plus_p",
+                               "stroma_percent_cd11b_p", "stroma_percent_cd11bplus_cd15plus_p",
+                               "clusters_all_IandP")] %>% 
+    drop_na(-suid) %>% 
+  arrange(clusters_all_IandP, stroma_percent_cd3_p, tumor_percent_cd3_p, 
+          tumor_percent_cd3plus_foxp3plus_p, tumor_percent_cd11bplus_cd15plus_p) 
+marker.exp1 <- marker.exp %>%
+  unite(suid, c(suid, clusters_all_IandP), sep = "_", remove = TRUE) %>%
+  `row.names<-`(.$suid) %>%
+  select(-c(suid, starts_with("cd")))
+
+sqrt.markers <- sqrt(marker.exp1[,c(1:length(marker.exp1))])
+
+z_sqrt.markers <- sqrt.markers %>% 
+  mutate(mad_tumor_percent_cd3_p = mad((tumor_percent_cd3_p)) + 0.0001
+  ) %>% 
+  mutate(mad_tumor_percent_cd3plus_cd8plus_p = mad((tumor_percent_cd3plus_cd8plus_p)) + 0.0001
+  ) %>% 
+  mutate(mad_tumor_percent_cd3plus_foxp3plus_p = mad((tumor_percent_cd3plus_foxp3plus_p)) + 0.0001
+  ) %>% 
+  mutate(mad_tumor_percent_cd11b_p = mad((tumor_percent_cd11b_p)) + 0.0001
+  ) %>% 
+  mutate(mad_tumor_percent_cd11bplus_cd15plus_p = mad((tumor_percent_cd11bplus_cd15plus_p)) + 0.0001
+  ) %>% 
+  mutate(mad_stroma_percent_cd3_p = mad((stroma_percent_cd3_p)) + 0.0001
+  ) %>% 
+  mutate(mad_stroma_percent_cd3plus_cd8plus_p = mad((stroma_percent_cd3plus_cd8plus_p)) + 0.0001
+  ) %>% 
+  mutate(mad_stroma_percent_cd3plus_foxp3plus_p = mad((stroma_percent_cd3plus_foxp3plus_p)) + 0.0001
+  ) %>% 
+  mutate(mad_stroma_percent_cd11b_p = mad((stroma_percent_cd11b_p)) + 0.0001
+  ) %>% 
+  mutate(mad_stroma_percent_cd11bplus_cd15plus_p = mad((stroma_percent_cd11bplus_cd15plus_p)) + 0.0001
+  ) %>% 
+  
+  mutate(z_cd3_tumor_p = (tumor_percent_cd3_p - median(tumor_percent_cd3_p, na.rm = TRUE))/
+           mad_tumor_percent_cd3_p) %>% 
+  mutate(z_cd3plus_cd8plus_tumor_p = (tumor_percent_cd3plus_cd8plus_p - median(tumor_percent_cd3plus_cd8plus_p, na.rm = TRUE))/
+           mad_tumor_percent_cd3plus_cd8plus_p) %>% 
+  mutate(z_cd3plus_foxp3plus_tumor_p = (tumor_percent_cd3plus_foxp3plus_p - median(tumor_percent_cd3plus_foxp3plus_p, na.rm = TRUE))/
+           mad_tumor_percent_cd3plus_foxp3plus_p) %>% 
+  mutate(z_cd11b_tumor_p = (tumor_percent_cd11b_p - median(tumor_percent_cd11b_p, na.rm = TRUE))/
+           mad_tumor_percent_cd11b_p) %>% 
+  mutate(z_cd11bplus_cd15plus_tumor_p = (tumor_percent_cd11bplus_cd15plus_p - median(tumor_percent_cd11bplus_cd15plus_p, na.rm = TRUE))/
+           mad_tumor_percent_cd11bplus_cd15plus_p) %>% 
+  mutate(z_cd3_stroma_p = (stroma_percent_cd3_p - median(stroma_percent_cd3_p, na.rm = TRUE))/
+           mad_stroma_percent_cd3_p) %>% 
+  mutate(z_cd3plus_cd8plus_stroma_p = (stroma_percent_cd3plus_cd8plus_p - median(stroma_percent_cd3plus_cd8plus_p, na.rm = TRUE))/
+           mad_stroma_percent_cd3plus_cd8plus_p) %>% 
+  mutate(z_cd3plus_foxp3plus_stroma_p = (stroma_percent_cd3plus_foxp3plus_p - median(stroma_percent_cd3plus_foxp3plus_p, na.rm = TRUE))/
+           mad_stroma_percent_cd3plus_foxp3plus_p) %>% 
+  mutate(z_cd11b_stroma_p = (stroma_percent_cd11b_p - median(stroma_percent_cd11b_p, na.rm = TRUE))/
+           mad_stroma_percent_cd11b_p) %>% 
+  mutate(z_cd11bplus_cd15plus_stroma_p = (stroma_percent_cd11bplus_cd15plus_p - median(stroma_percent_cd11bplus_cd15plus_p, na.rm = TRUE))/
+           mad_stroma_percent_cd11bplus_cd15plus_p) %>% 
+  select(c(starts_with("z_")))
+
+df6 <- t(scale(as.matrix(z_sqrt.markers))) # scale for standardizing the data to make variables comparable
+
+column_peri = HeatmapAnnotation(
+                              cluster = (marker.exp$clusters_all_IandP), 
+                              col = list(
+                                         cluster = c("low" = "#440154FF", "mid-low"= "#3B528BFF",
+                                                 "mid" = "#21908CFF",
+                                                  "mid-high"= "#5DC863FF", "high" = "#FDE725FF")
+                                         ),
+    na_col = "black")
+Heatmap(df6, name = " ",
+        cluster_rows = FALSE, cluster_columns = FALSE,
+        top_annotation = column_peri)
+
+# column_peri = HeatmapAnnotation(race = c(marker.exp$race),
+#                               col = list(race = c("White" = "#932667FF", "Black" = "grey")),
+    # na_col = "black")
+Heatmap(df6, name = " ",
+        cluster_rows = FALSE,
+        top_annotation = column_peri)
+
+```
+
+```{r ggridges, fig.width=12}
+b <- markers_ROI %>% 
+  filter(!is.na(clusters_all_IandP)) %>% 
+  select(clusters_all_IandP, 
+         percent_cd3 = stroma_percent_cd3_i, 
+         percent_cd3plus_cd8plus = stroma_percent_cd3plus_cd8plus_i, 
+         percent_cd3plus_foxp3plus = stroma_percent_cd3plus_foxp3plus_i, 
+         percent_cd11b = stroma_percent_cd11b_i, 
+         percent_cd11bplus_cd15plus = stroma_percent_cd11bplus_cd15plus_i) %>% 
+  pivot_longer(-clusters_all_IandP, names_to = "markers", values_to = "value") %>% 
+  mutate(location = "Stroma")
+
+markers_ROI %>% 
+  filter(!is.na(clusters_all_IandP)) %>% 
+  select(clusters_all_IandP, 
+         percent_cd3 = tumor_percent_cd3_i, 
+         percent_cd3plus_cd8plus = tumor_percent_cd3plus_cd8plus_i, 
+         percent_cd3plus_foxp3plus = tumor_percent_cd3plus_foxp3plus_i, 
+         percent_cd11b = tumor_percent_cd11b_i, 
+         percent_cd11bplus_cd15plus = tumor_percent_cd11bplus_cd15plus_i) %>% 
+  pivot_longer(-clusters_all_IandP, names_to = "markers", values_to = "value") %>% 
+  mutate(location = "Tumor") %>% 
+  bind_rows(., b) %>% 
+  
+  ggplot(aes(y=markers, x=value,  fill=markers, linetype = location)) +
+    geom_density_ridges(alpha=0.5) +
+  ggtitle("Intratumoral")+
+    theme_ridges()+
+  theme(axis.text.y = element_blank(),
+        panel.spacing = unit(0.1, "lines"),
+        strip.text.x = element_text(size = 8)
+    ) +
+  
+  facet_wrap(~ clusters_all_IandP, nrow = 1, scales = "free_x")
+
+a <- markers_ROI %>% 
+  filter(!is.na(clusters_all_IandP)) %>% 
+  select(clusters_all_IandP, 
+         percent_cd3 = stroma_percent_cd3_p, 
+         percent_cd3plus_cd8plus = stroma_percent_cd3plus_cd8plus_p, 
+         percent_cd3plus_foxp3plus = stroma_percent_cd3plus_foxp3plus_p, 
+         percent_cd11b = stroma_percent_cd11b_p, 
+         percent_cd11bplus_cd15plus = stroma_percent_cd11bplus_cd15plus_p) %>% 
+  pivot_longer(-clusters_all_IandP, names_to = "markers", values_to = "value") %>% 
+  mutate(location = "Stroma")
+
+markers_ROI %>% 
+  filter(!is.na(clusters_all_IandP)) %>% 
+  select(clusters_all_IandP, 
+         percent_cd3 = tumor_percent_cd3_p, 
+         percent_cd3plus_cd8plus = tumor_percent_cd3plus_cd8plus_p, 
+         percent_cd3plus_foxp3plus = tumor_percent_cd3plus_foxp3plus_p, 
+         percent_cd11b = tumor_percent_cd11b_p, 
+         percent_cd11bplus_cd15plus = tumor_percent_cd11bplus_cd15plus_p) %>% 
+  pivot_longer(-clusters_all_IandP, names_to = "markers", values_to = "value") %>% 
+  mutate(location = "Tumor") %>% 
+  bind_rows(., b) %>% 
+  
+  ggplot(aes(y=markers, x=value,  fill=markers, linetype = location)) +
+    geom_density_ridges(alpha=0.5) +
+  ggtitle("Peripheral")+
+    theme_ridges()+
+  theme(axis.text.y = element_blank(),
+        panel.spacing = unit(0.1, "lines"),
+        strip.text.x = element_text(size = 8)
+    ) +
+  
+  facet_wrap(~ clusters_all_IandP, nrow = 1, scales = "free_x")
+```
+
+
+# Table Adjusted hazard ratios and 95% confidence intervals USING THE AVERAGED VALUES
+Adjusted by `strata(stage) + refage + strata(histotype2)`
+```{r}
+markers_ROI_o <- markers_ROI %>% 
+    # filter(!str_detect(suid, remove_id_bmi)) %>% 
+  rename(cd3 = cd3_total_i, cd3plus_cd8plus = cd3plus_cd8plus_total_i,
+         cd3plus_foxp3plus = cd3plus_foxp3plus_total_i, 
+         cd11b = cd11b_total_i, cd11bplus_cd15plus = cd11bplus_cd15plus_total_i)
+  
+tbl1 <- coxph(Surv(time = markers_ROI_o$timeint_fu, 
+                   event = markers_ROI_o$os_event) ~ cd3 + strata(stage) + refage + strata(histotype2), data =  markers_ROI_o)  %>% 
+  tbl_regression(exponentiate = TRUE,
+                 include = cd3) %>% bold_p(t = .05) %>% add_nevent(location = "level") %>% add_n(location = "level")
+tbl2 <- coxph(Surv(time = markers_ROI_o$timeint_fu, 
+                   event = markers_ROI_o$os_event) ~ cd3plus_cd8plus + strata(stage) + refage + strata(histotype2), data =  markers_ROI_o) %>%
+  tbl_regression(exponentiate = TRUE,
+                 include = cd3plus_cd8plus) %>% bold_p(t = .05) %>% add_nevent(location = "level") %>% add_n(location = "level")
+tbl3 <- coxph(Surv(time = markers_ROI_o$timeint_fu, 
+                   event = markers_ROI_o$os_event) ~ cd3plus_foxp3plus + strata(stage) + refage + strata(histotype2), data =  markers_ROI_o) %>%
+  tbl_regression(exponentiate = TRUE,
+                 include = cd3plus_foxp3plus) %>% bold_p(t = .05) %>% add_nevent(location = "level") %>% add_n(location = "level")
+tbl4 <- coxph(Surv(time = markers_ROI_o$timeint_fu, 
+                   event = markers_ROI_o$os_event) ~ cd11b + strata(stage) + refage + strata(histotype2), data =  markers_ROI_o) %>%
+  tbl_regression(exponentiate = TRUE,
+                 include = cd11b) %>% bold_p(t = .05) %>% add_nevent(location = "level") %>% add_n(location = "level")
+tbl5 <- coxph(Surv(time = markers_ROI_o$timeint_fu, 
+                   event = markers_ROI_o$os_event) ~ cd11bplus_cd15plus + strata(stage) + refage + strata(histotype2), data =  markers_ROI_o) %>%
+  tbl_regression(exponentiate = TRUE,
+                 include = cd11bplus_cd15plus) %>% bold_p(t = .05) %>% add_nevent(location = "level") %>% add_n(location = "level")
+
+tbl10 <- tbl_stack(list(tbl1, tbl2, tbl3, tbl4, tbl5))
+
+markers_ROI_t <- markers_ROI %>% 
+    # filter(!str_detect(suid, remove_id_bmi)) %>% 
+  rename(cd3 = cd3_tumor_i, cd3plus_cd8plus = cd3plus_cd8plus_tumor_i,
+         cd3plus_foxp3plus = cd3plus_foxp3plus_tumor_i, 
+         cd11b = cd11b_tumor_i, cd11bplus_cd15plus = cd11bplus_cd15plus_tumor_i)
+  
+tbl1 <- coxph(Surv(time = markers_ROI_t$timeint_fu, 
+                   event = markers_ROI_t$os_event) ~ cd3 + strata(stage) + refage + strata(histotype2), data =  markers_ROI_t)  %>% 
+  tbl_regression(exponentiate = TRUE,
+                 include = cd3) %>% bold_p(t = .05) %>% add_nevent(location = "level") %>% add_n(location = "level")
+tbl2 <- coxph(Surv(time = markers_ROI_t$timeint_fu, 
+                   event = markers_ROI_t$os_event) ~ cd3plus_cd8plus + strata(stage) + refage + strata(histotype2), data =  markers_ROI_t) %>%
+  tbl_regression(exponentiate = TRUE,
+                 include = cd3plus_cd8plus) %>% bold_p(t = .05) %>% add_nevent(location = "level") %>% add_n(location = "level")
+tbl3 <- coxph(Surv(time = markers_ROI_t$timeint_fu, 
+                   event = markers_ROI_t$os_event) ~ cd3plus_foxp3plus + strata(stage) + refage + strata(histotype2), data =  markers_ROI_t) %>%
+  tbl_regression(exponentiate = TRUE,
+                 include = cd3plus_foxp3plus) %>% bold_p(t = .05) %>% add_nevent(location = "level") %>% add_n(location = "level")
+tbl4 <- coxph(Surv(time = markers_ROI_t$timeint_fu, 
+                   event = markers_ROI_t$os_event) ~ cd11b + strata(stage) + refage + strata(histotype2), data =  markers_ROI_t) %>%
+  tbl_regression(exponentiate = TRUE,
+                 include = cd11b) %>% bold_p(t = .05) %>% add_nevent(location = "level") %>% add_n(location = "level")
+tbl5 <- coxph(Surv(time = markers_ROI_t$timeint_fu, 
+                   event = markers_ROI_t$os_event) ~ cd11bplus_cd15plus + strata(stage) + refage + strata(histotype2), data =  markers_ROI_t) %>%
+  tbl_regression(exponentiate = TRUE,
+                 include = cd11bplus_cd15plus) %>% bold_p(t = .05) %>% add_nevent(location = "level") %>% add_n(location = "level")
+
+tbl11 <- tbl_stack(list(tbl1, tbl2, tbl3, tbl4, tbl5))
+
+markers_ROI_s <- markers_ROI %>% 
+    # filter(!str_detect(suid, remove_id_bmi)) %>% 
+  rename(cd3 = cd3_stroma_i, cd3plus_cd8plus = cd3plus_cd8plus_stroma_i,
+         cd3plus_foxp3plus = cd3plus_foxp3plus_stroma_i, 
+         cd11b = cd11b_stroma_i, cd11bplus_cd15plus = cd11bplus_cd15plus_stroma_i)
+
+tbl1 <- coxph(Surv(time = markers_ROI_s$timeint_fu, 
+                   event = markers_ROI_s$os_event) ~ cd3 + strata(stage) + refage + strata(histotype2), data =  markers_ROI_s) %>%
+  tbl_regression(exponentiate = TRUE,
+                 include = cd3) %>% bold_p(t = .05) %>% add_nevent(location = "level") %>% add_n(location = "level")
+tbl2 <- coxph(Surv(time = markers_ROI_s$timeint_fu, 
+                   event = markers_ROI_s$os_event) ~ cd3plus_cd8plus + strata(stage) + refage + strata(histotype2), data =  markers_ROI_s) %>%
+  tbl_regression(exponentiate = TRUE,
+                 include = cd3plus_cd8plus) %>% bold_p(t = .05) %>% add_nevent(location = "level") %>% add_n(location = "level")
+tbl3 <- coxph(Surv(time = markers_ROI_s$timeint_fu, 
+                   event = markers_ROI_s$os_event) ~ cd3plus_foxp3plus + strata(stage) + refage + strata(histotype2), data =  markers_ROI_s) %>%
+  tbl_regression(exponentiate = TRUE,
+                 include = cd3plus_foxp3plus) %>% bold_p(t = .05) %>% add_nevent(location = "level") %>% add_n(location = "level")
+tbl4 <- coxph(Surv(time = markers_ROI_s$timeint_fu, 
+                   event = markers_ROI_s$os_event) ~ cd11b + strata(stage) + refage + strata(histotype2), data =  markers_ROI_s) %>%
+  tbl_regression(exponentiate = TRUE,
+                 include = cd11b) %>% bold_p(t = .05) %>% add_nevent(location = "level") %>% add_n(location = "level")
+tbl5 <- coxph(Surv(time = markers_ROI_s$timeint_fu, 
+                   event = markers_ROI_s$os_event) ~ cd11bplus_cd15plus + strata(stage) + refage + strata(histotype2), data =  markers_ROI_s) %>%
+  tbl_regression(exponentiate = TRUE,
+                 include = cd11bplus_cd15plus) %>% bold_p(t = .05) %>% add_nevent(location = "level") %>% add_n(location = "level")
+
+tbl12 <- tbl_stack(list(tbl1, tbl2, tbl3, tbl4, tbl5))
+# tbl13 <- tbl_merge(list(tbl10, tbl11, tbl12), tab_spanner = c("**Overall**", "**Tumor**", "**Stroma**"))
+
+
+
+markers_ROI_o <- markers_ROI %>% 
+    # filter(!str_detect(suid, remove_id_bmi)) %>% 
+  rename(cd3 = cd3_total_p, cd3plus_cd8plus = cd3plus_cd8plus_total_p,
+         cd3plus_foxp3plus = cd3plus_foxp3plus_total_p, 
+         cd11b = cd11b_total_p, cd11bplus_cd15plus = cd11bplus_cd15plus_total_p)
+  
+tbl1 <- coxph(Surv(time = markers_ROI_o$timeint_fu, 
+                   event = markers_ROI_o$os_event) ~ cd3 + strata(stage) + refage + strata(histotype2), data =  markers_ROI_o)  %>% 
+  tbl_regression(exponentiate = TRUE,
+                 include = cd3) %>% bold_p(t = .05) %>% add_nevent(location = "level") %>% add_n(location = "level")
+tbl2 <- coxph(Surv(time = markers_ROI_o$timeint_fu, 
+                   event = markers_ROI_o$os_event) ~ cd3plus_cd8plus + strata(stage) + refage + strata(histotype2), data =  markers_ROI_o) %>%
+  tbl_regression(exponentiate = TRUE,
+                 include = cd3plus_cd8plus) %>% bold_p(t = .05) %>% add_nevent(location = "level") %>% add_n(location = "level")
+tbl3 <- coxph(Surv(time = markers_ROI_o$timeint_fu, 
+                   event = markers_ROI_o$os_event) ~ cd3plus_foxp3plus + strata(stage) + refage + strata(histotype2), data =  markers_ROI_o) %>%
+  tbl_regression(exponentiate = TRUE,
+                 include = cd3plus_foxp3plus) %>% bold_p(t = .05) %>% add_nevent(location = "level") %>% add_n(location = "level")
+tbl4 <- coxph(Surv(time = markers_ROI_o$timeint_fu, 
+                   event = markers_ROI_o$os_event) ~ cd11b + strata(stage) + refage + strata(histotype2), data =  markers_ROI_o) %>%
+  tbl_regression(exponentiate = TRUE,
+                 include = cd11b) %>% bold_p(t = .05) %>% add_nevent(location = "level") %>% add_n(location = "level")
+tbl5 <- coxph(Surv(time = markers_ROI_o$timeint_fu, 
+                   event = markers_ROI_o$os_event) ~ cd11bplus_cd15plus + strata(stage) + refage + strata(histotype2), data =  markers_ROI_o) %>%
+  tbl_regression(exponentiate = TRUE,
+                 include = cd11bplus_cd15plus) %>% bold_p(t = .05) %>% add_nevent(location = "level") %>% add_n(location = "level")
+
+tbl13 <- tbl_stack(list(tbl1, tbl2, tbl3, tbl4, tbl5))
+
+markers_ROI_t <- markers_ROI %>% 
+    # filter(!str_detect(suid, remove_id_bmi)) %>% 
+  rename(cd3 = cd3_tumor_p, cd3plus_cd8plus = cd3plus_cd8plus_tumor_p,
+         cd3plus_foxp3plus = cd3plus_foxp3plus_tumor_p, 
+         cd11b = cd11b_tumor_p, cd11bplus_cd15plus = cd11bplus_cd15plus_tumor_p)
+  
+tbl1 <- coxph(Surv(time = markers_ROI_t$timeint_fu, 
+                   event = markers_ROI_t$os_event) ~ cd3 + strata(stage) + refage + strata(histotype2), data =  markers_ROI_t)  %>% 
+  tbl_regression(exponentiate = TRUE,
+                 include = cd3) %>% bold_p(t = .05) %>% add_nevent(location = "level") %>% add_n(location = "level")
+tbl2 <- coxph(Surv(time = markers_ROI_t$timeint_fu, 
+                   event = markers_ROI_t$os_event) ~ cd3plus_cd8plus + strata(stage) + refage + strata(histotype2), data =  markers_ROI_t) %>%
+  tbl_regression(exponentiate = TRUE,
+                 include = cd3plus_cd8plus) %>% bold_p(t = .05) %>% add_nevent(location = "level") %>% add_n(location = "level")
+tbl3 <- coxph(Surv(time = markers_ROI_t$timeint_fu, 
+                   event = markers_ROI_t$os_event) ~ cd3plus_foxp3plus + strata(stage) + refage + strata(histotype2), data =  markers_ROI_t) %>%
+  tbl_regression(exponentiate = TRUE,
+                 include = cd3plus_foxp3plus) %>% bold_p(t = .05) %>% add_nevent(location = "level") %>% add_n(location = "level")
+tbl4 <- coxph(Surv(time = markers_ROI_t$timeint_fu, 
+                   event = markers_ROI_t$os_event) ~ cd11b + strata(stage) + refage + strata(histotype2), data =  markers_ROI_t) %>%
+  tbl_regression(exponentiate = TRUE,
+                 include = cd11b) %>% bold_p(t = .05) %>% add_nevent(location = "level") %>% add_n(location = "level")
+tbl5 <- coxph(Surv(time = markers_ROI_t$timeint_fu, 
+                   event = markers_ROI_t$os_event) ~ cd11bplus_cd15plus + strata(stage) + refage + strata(histotype2), data =  markers_ROI_t) %>%
+  tbl_regression(exponentiate = TRUE,
+                 include = cd11bplus_cd15plus) %>% bold_p(t = .05) %>% add_nevent(location = "level") %>% add_n(location = "level")
+
+tbl14 <- tbl_stack(list(tbl1, tbl2, tbl3, tbl4, tbl5))
+
+markers_ROI_s <- markers_ROI %>% 
+    # filter(!str_detect(suid, remove_id_bmi)) %>% 
+  rename(cd3 = cd3_stroma_p, cd3plus_cd8plus = cd3plus_cd8plus_stroma_p,
+         cd3plus_foxp3plus = cd3plus_foxp3plus_stroma_p, 
+         cd11b = cd11b_stroma_p, cd11bplus_cd15plus = cd11bplus_cd15plus_stroma_p)
+
+tbl1 <- coxph(Surv(time = markers_ROI_s$timeint_fu, 
+                   event = markers_ROI_s$os_event) ~ cd3 + strata(stage) + refage + strata(histotype2), data =  markers_ROI_s) %>%
+  tbl_regression(exponentiate = TRUE,
+                 include = cd3) %>% bold_p(t = .05) %>% add_nevent(location = "level") %>% add_n(location = "level")
+tbl2 <- coxph(Surv(time = markers_ROI_s$timeint_fu, 
+                   event = markers_ROI_s$os_event) ~ cd3plus_cd8plus + strata(stage) + refage + strata(histotype2), data =  markers_ROI_s) %>%
+  tbl_regression(exponentiate = TRUE,
+                 include = cd3plus_cd8plus) %>% bold_p(t = .05) %>% add_nevent(location = "level") %>% add_n(location = "level")
+tbl3 <- coxph(Surv(time = markers_ROI_s$timeint_fu, 
+                   event = markers_ROI_s$os_event) ~ cd3plus_foxp3plus + strata(stage) + refage + strata(histotype2), data =  markers_ROI_s) %>%
+  tbl_regression(exponentiate = TRUE,
+                 include = cd3plus_foxp3plus) %>% bold_p(t = .05) %>% add_nevent(location = "level") %>% add_n(location = "level")
+tbl4 <- coxph(Surv(time = markers_ROI_s$timeint_fu, 
+                   event = markers_ROI_s$os_event) ~ cd11b + strata(stage) + refage + strata(histotype2), data =  markers_ROI_s) %>%
+  tbl_regression(exponentiate = TRUE,
+                 include = cd11b) %>% bold_p(t = .05) %>% add_nevent(location = "level") %>% add_n(location = "level")
+tbl5 <- coxph(Surv(time = markers_ROI_s$timeint_fu, 
+                   event = markers_ROI_s$os_event) ~ cd11bplus_cd15plus + strata(stage) + refage + strata(histotype2), data =  markers_ROI_s) %>%
+  tbl_regression(exponentiate = TRUE,
+                 include = cd11bplus_cd15plus) %>% bold_p(t = .05) %>% add_nevent(location = "level") %>% add_n(location = "level")
+
+tbl15 <- tbl_stack(list(tbl1, tbl2, tbl3, tbl4, tbl5))
+
+# tbl14 <- tbl_merge(list(tbl13, tbl14, tbl15), tab_spanner = c("**Overall**", "**Tumor**", "**Stroma**"))
+```
+
+## Overall
+```{r}
+tbl16 <- tbl_stack(list(tbl10, tbl13), group_header = c("Intratumoral", "Peripheral")) %>% as_gt()
+tbl16
+# gt::gtsave(tbl16, paste0(path, "/Table 3. Adjusted hazard ratios and 95% confidence intervals in Overall ROIs_pdf"))
+```
+
+## Tumor
+```{r}
+tbl17 <- tbl_stack(list(tbl11, tbl14), group_header = c("Intratumoral", "Peripheral")) %>% as_gt()
+tbl17
+# gt::gtsave(tbl17, paste0(path, "/Table 3. Adjusted hazard ratios and 95% confidence intervals in Tumor ROIs_pdf"))
+```
+
+## Stroma
+```{r}
+tbl18 <- tbl_stack(list(tbl12, tbl15), group_header = c("Intratumoral", "Peripheral")) %>% as_gt()
+tbl18
+# gt::gtsave(tbl18, paste0(path, "/Table 3. Adjusted hazard ratios and 95% confidence intervals in Stroma ROIs_pdf"))
+```
+
+
+# Table Adjusted hazard ratios and 95% confidence intervals (**include each 3 values and USING the CLUSTER option**)
+
+```{r create group per sample on ROI_global}
+ROI_global <- ROI_global %>% 
+  
+  mutate(cd3_tumor = case_when(
+    tumor_percent_cd3 <= 1      ~ "low",
+    tumor_percent_cd3 > 1       ~ "high"
+  ), cd3_tumor = factor(cd3_tumor, levels = c("low","high"))) %>%
+  mutate(cd3plus_cd8plus_tumor = case_when(
+    tumor_percent_cd3plus_cd8plus <= 1      ~ "low",
+    tumor_percent_cd3plus_cd8plus > 1       ~ "high"
+  ), cd3plus_cd8plus_tumor = factor(cd3plus_cd8plus_tumor, levels = c("low","high"))) %>%
+  mutate(cd3plus_foxp3plus_tumor = case_when(
+    tumor_percent_cd3plus_foxp3plus <= 1      ~ "low",
+    tumor_percent_cd3plus_foxp3plus > 1       ~ "high"
+  ), cd3plus_foxp3plus_tumor = factor(cd3plus_foxp3plus_tumor, levels = c("low","high"))) %>%
+  mutate(cd11b_tumor = case_when(
+    tumor_percent_cd11b <= 1      ~ "low",
+    tumor_percent_cd11b > 1       ~ "high"
+  ), cd11b_tumor = factor(cd11b_tumor, levels = c("low","high"))) %>%
+  mutate(cd11bplus_cd15plus_tumor = case_when(
+    tumor_percent_cd11bplus_cd15plus == 0      ~ "Absence",
+    tumor_percent_cd11bplus_cd15plus > 0       ~ "Presence"
+  ), cd11bplus_cd15plus_tumor = factor(cd11bplus_cd15plus_tumor, levels = c("Absence","Presence"))) %>% 
+  mutate(cd3_stroma = case_when(
+    stroma_percent_cd3 <= 1      ~ "low",
+    stroma_percent_cd3 > 1       ~ "high"
+  ), cd3_stroma = factor(cd3_stroma, levels = c("low","high"))) %>%
+  mutate(cd3plus_cd8plus_stroma = case_when(
+    stroma_percent_cd3plus_cd8plus <= 1      ~ "low",
+    stroma_percent_cd3plus_cd8plus > 1       ~ "high"
+  ), cd3plus_cd8plus_stroma = factor(cd3plus_cd8plus_stroma, levels = c("low","high"))) %>%
+  mutate(cd3plus_foxp3plus_stroma = case_when(
+    stroma_percent_cd3plus_foxp3plus <= 1      ~ "low",
+    stroma_percent_cd3plus_foxp3plus > 1       ~ "high"
+  ), cd3plus_foxp3plus_stroma = factor(cd3plus_foxp3plus_stroma, levels = c("low","high"))) %>%
+  mutate(cd11b_stroma = case_when(
+    stroma_percent_cd11b <= 1      ~ "low",
+    stroma_percent_cd11b > 1       ~ "high"
+  ), cd11b_stroma = factor(cd11b_stroma, levels = c("low","high"))) %>%
+  mutate(cd11bplus_cd15plus_stroma = case_when(
+    stroma_percent_cd11bplus_cd15plus == 0      ~ "Absence",
+    stroma_percent_cd11bplus_cd15plus > 0       ~ "Presence"
+  ), cd11bplus_cd15plus_stroma = factor(cd11bplus_cd15plus_stroma, levels = c("Absence","Presence"))) %>% 
+  mutate(cd3_total = case_when(
+    total_percent_cd3 <= 1      ~ "low",
+    total_percent_cd3 > 1       ~ "high"
+  ), cd3_total = factor(cd3_total, levels = c("low","high"))) %>%
+  mutate(cd3plus_cd8plus_total = case_when(
+    total_percent_cd3plus_cd8plus <= 1      ~ "low",
+    total_percent_cd3plus_cd8plus > 1       ~ "high"
+  ), cd3plus_cd8plus_total = factor(cd3plus_cd8plus_total, levels = c("low","high"))) %>%
+  mutate(cd3plus_foxp3plus_total = case_when(
+    total_percent_cd3plus_foxp3plus <= 1      ~ "low",
+    total_percent_cd3plus_foxp3plus > 1       ~ "high"
+  ), cd3plus_foxp3plus_total = factor(cd3plus_foxp3plus_total, levels = c("low","high"))) %>%
+  mutate(cd11b_total = case_when(
+    total_percent_cd11b <= 1      ~ "low",
+    total_percent_cd11b > 1       ~ "high"
+  ), cd11b_total = factor(cd11b_total, levels = c("low","high"))) %>%
+  mutate(cd11bplus_cd15plus_total = case_when(
+    total_percent_cd11bplus_cd15plus == 0      ~ "Absence",
+    total_percent_cd11bplus_cd15plus > 0       ~ "Presence"
+  ), cd11bplus_cd15plus_total = factor(cd11bplus_cd15plus_total, levels = c("Absence","Presence")))
+```
+
+<!-- **Removed 4 patients no BMI** -->
+Adjusted by `strata(stage) + refage + strata(histotype2)`
+
+```{r Table cluster option}
+markers_ROIclust_o <- ROI_global %>%
+    # filter(!str_detect(suid, remove_id_bmi)) %>% 
+  filter(annotation == "Intratumoral") %>% 
+  rename(cd3 = cd3_total, cd3plus_cd8plus = cd3plus_cd8plus_total,
+         cd3plus_foxp3plus = cd3plus_foxp3plus_total, 
+         cd11b = cd11b_total, cd11bplus_cd15plus = cd11bplus_cd15plus_total)
+  
+tbl1 <- coxph(Surv(time = markers_ROIclust_o$timeint_fu, 
+                   event = markers_ROIclust_o$os_event) ~ cd3 + strata(stage) + refage + strata(histotype2), 
+              cluster = suid, data =  markers_ROIclust_o)  %>% 
+  tbl_regression(exponentiate = TRUE,
+                 include = cd3) %>% bold_p(t = .05) %>% add_nevent(location = "level") %>% add_n(location = "level")
+tbl2 <- coxph(Surv(time = markers_ROIclust_o$timeint_fu, 
+                   event = markers_ROIclust_o$os_event) ~ cd3plus_cd8plus + strata(stage) + refage + strata(histotype2), 
+              cluster = suid, data =  markers_ROIclust_o) %>%
+  tbl_regression(exponentiate = TRUE,
+                 include = cd3plus_cd8plus) %>% bold_p(t = .05) %>% add_nevent(location = "level") %>% add_n(location = "level")
+tbl3 <- coxph(Surv(time = markers_ROIclust_o$timeint_fu,
+                   event = markers_ROIclust_o$os_event) ~ cd3plus_foxp3plus + strata(stage) + refage + strata(histotype2), 
+              cluster = suid, data =  markers_ROIclust_o) %>%
+  tbl_regression(exponentiate = TRUE,
+                 include = cd3plus_foxp3plus) %>% bold_p(t = .05) %>% add_nevent(location = "level") %>% add_n(location = "level")
+
+
+# newdata <- survSplit(Surv(time = markers_ROIclust_o$timeint_fu, 
+#                    event = markers_ROIclust_o$os_event) ~ cd3plus_foxp3plus + strata(stage) + refage + strata(histotype2), id = "suid", data = markers_ROIclust_o, cut=1700, episode='tgroup')
+# 
+# coxph(Surv(newdata$tstart, newdata$tstop,
+#                    event = newdata$event) ~ cd3plus_foxp3plus + cd3plus_foxp3plus:tstop + strata(stage) + refage + strata(histotype2), cluster = suid, 
+#               data =  newdata)
+# 
+# coxph(Surv(newdata$tstart, newdata$tstop,
+#                    event = newdata$event) ~ cd3plus_foxp3plus:strata(tgroup) + strata(stage) + refage + strata(histotype2), cluster = suid, 
+#               data =  newdata)
+# 
+# survcheck(Surv(newdata$tstart, newdata$tstop,
+#                    event = newdata$event) ~ cd3plus_foxp3plus:strata(tgroup) + strata(stage) + refage + strata(histotype2), id = suid, 
+#               data =  newdata)
+# 
+# survfit(Surv(newdata$tstart, newdata$tstop,
+#                    event = newdata$event) ~ cd3plus_foxp3plus + strata(tgroup) + strata(stage) + refage + strata(histotype2), cluster = suid, influence = TRUE,
+#               data =  newdata)
+
+
+
+# tbl3 <-
+#   coxph(Surv(time = newdata$tstart, newdata$tstop,
+#                    event = newdata$event) ~ cd3plus_foxp3plus + cd3plus_foxp3plus:tstop + strata(stage) + refage + strata(histotype2), cluster = suid, 
+#               data =  newdata) %>% 
+#   tbl_regression(exponentiate = TRUE,
+#                  include = 'cd3plus_foxp3plus:tstop') %>% bold_p(t = .05) %>% add_nevent(location = "level") %>% add_n(location = "level")
+
+tbl4 <- coxph(Surv(time = markers_ROIclust_o$timeint_fu, 
+                   event = markers_ROIclust_o$os_event) ~ cd11b + strata(stage) + refage + strata(histotype2), 
+              cluster = suid, data =  markers_ROIclust_o) %>%
+  tbl_regression(exponentiate = TRUE,
+                 include = cd11b) %>% bold_p(t = .05) %>% add_nevent(location = "level") %>% add_n(location = "level")
+tbl5 <- coxph(Surv(time = markers_ROIclust_o$timeint_fu, 
+                   event = markers_ROIclust_o$os_event) ~ cd11bplus_cd15plus + strata(stage) + refage + strata(histotype2), 
+              cluster = suid, data =  markers_ROIclust_o) %>%
+  tbl_regression(exponentiate = TRUE,
+                 include = cd11bplus_cd15plus) %>% bold_p(t = .05) %>% add_nevent(location = "level") %>% add_n(location = "level")
+
+tbl10 <- tbl_stack(list(tbl1, tbl2, tbl3, tbl4, tbl5))
+
+markers_ROIclust_t <- ROI_global %>% 
+    # filter(!str_detect(suid, remove_id_bmi)) %>% 
+    filter(annotation == "Intratumoral") %>% 
+  rename(cd3 = cd3_tumor, cd3plus_cd8plus = cd3plus_cd8plus_tumor,
+         cd3plus_foxp3plus = cd3plus_foxp3plus_tumor, 
+         cd11b = cd11b_tumor, cd11bplus_cd15plus = cd11bplus_cd15plus_tumor)
+  
+tbl1 <- coxph(Surv(time = markers_ROIclust_t$timeint_fu, 
+                   event = markers_ROIclust_t$os_event) ~ cd3 + strata(stage) + refage + strata(histotype2), 
+              cluster = suid, data =  markers_ROIclust_t)  %>% 
+  tbl_regression(exponentiate = TRUE,
+                 include = cd3) %>% bold_p(t = .05) %>% add_nevent(location = "level") %>% add_n(location = "level")
+tbl2 <- coxph(Surv(time = markers_ROIclust_t$timeint_fu, 
+                   event = markers_ROIclust_t$os_event) ~ cd3plus_cd8plus + strata(stage) + refage + strata(histotype2), 
+              cluster = suid, data =  markers_ROIclust_t) %>%
+  tbl_regression(exponentiate = TRUE,
+                 include = cd3plus_cd8plus) %>% bold_p(t = .05) %>% add_nevent(location = "level") %>% add_n(location = "level")
+tbl3 <- coxph(Surv(time = markers_ROIclust_t$timeint_fu,
+                   event = markers_ROIclust_t$os_event) ~ cd3plus_foxp3plus + strata(stage) + refage + strata(histotype2), 
+              cluster = suid, data =  markers_ROIclust_t) %>%
+  tbl_regression(exponentiate = TRUE,
+                 include = cd3plus_foxp3plus) %>% bold_p(t = .05) %>% add_nevent(location = "level") %>% add_n(location = "level")
+# newdata <- survSplit(Surv(time = markers_ROIclust_t$timeint_fu, 
+#                    event = markers_ROIclust_t$os_event) ~ cd3plus_foxp3plus + strata(stage) + refage + strata(histotype2), id = "suid", data = markers_ROIclust_t, cut=1700, episode='tgroup')   
+# 
+# tbl3 <- coxph(Surv(time = newdata$tstart, newdata$tstop,
+#                    event = newdata$event) ~ cd3plus_foxp3plus:strata(tgroup) + strata(stage) + refage + strata(histotype2), cluster = suid, 
+#               data =  newdata) %>% 
+#   tbl_regression(exponentiate = TRUE,
+#                  include = 'cd3plus_foxp3plus:strata(tgroup)') %>% bold_p(t = .05) %>% add_nevent(location = "level") %>% add_n(location = "level")
+tbl4 <- coxph(Surv(time = markers_ROIclust_t$timeint_fu, 
+                   event = markers_ROIclust_t$os_event) ~ cd11b + strata(stage) + refage + strata(histotype2), 
+              cluster = suid, data =  markers_ROIclust_t) %>%
+  tbl_regression(exponentiate = TRUE,
+                 include = cd11b) %>% bold_p(t = .05) %>% add_nevent(location = "level") %>% add_n(location = "level")
+tbl5 <- coxph(Surv(time = markers_ROIclust_t$timeint_fu, 
+                   event = markers_ROIclust_t$os_event) ~ cd11bplus_cd15plus + strata(stage) + refage + strata(histotype2), 
+              cluster = suid, data =  markers_ROIclust_t) %>%
+  tbl_regression(exponentiate = TRUE,
+                 include = cd11bplus_cd15plus) %>% bold_p(t = .05) %>% add_nevent(location = "level") %>% add_n(location = "level")
+
+tbl11 <- tbl_stack(list(tbl1, tbl2, tbl3, tbl4, tbl5))
+
+markers_ROIclust_s <- ROI_global %>% 
+    # filter(!str_detect(suid, remove_id_bmi)) %>% 
+    filter(annotation == "Intratumoral") %>% 
+  rename(cd3 = cd3_stroma, cd3plus_cd8plus = cd3plus_cd8plus_stroma,
+         cd3plus_foxp3plus = cd3plus_foxp3plus_stroma, 
+         cd11b = cd11b_stroma, cd11bplus_cd15plus = cd11bplus_cd15plus_stroma)
+
+tbl1 <- coxph(Surv(time = markers_ROIclust_s$timeint_fu, 
+                   event = markers_ROIclust_s$os_event) ~ cd3 + strata(stage) + refage + strata(histotype2), 
+              cluster = suid, data =  markers_ROIclust_s) %>%
+  tbl_regression(exponentiate = TRUE,
+                 include = cd3) %>% bold_p(t = .05) %>% add_nevent(location = "level") %>% add_n(location = "level")
+tbl2 <- coxph(Surv(time = markers_ROIclust_s$timeint_fu, 
+                   event = markers_ROIclust_s$os_event) ~ cd3plus_cd8plus + strata(stage) + refage + strata(histotype2), 
+              cluster = suid, data =  markers_ROIclust_s) %>%
+  tbl_regression(exponentiate = TRUE,
+                 include = cd3plus_cd8plus) %>% bold_p(t = .05) %>% add_nevent(location = "level") %>% add_n(location = "level")
+tbl3 <- coxph(Surv(time = markers_ROIclust_s$timeint_fu,
+                   event = markers_ROIclust_s$os_event) ~ cd3plus_foxp3plus + strata(stage) + refage + strata(histotype2), 
+              cluster = suid, data =  markers_ROIclust_s) %>%
+  tbl_regression(exponentiate = TRUE,
+                 include = cd3plus_foxp3plus) %>% bold_p(t = .05) %>% add_nevent(location = "level") %>% add_n(location = "level")
+# newdata <- survSplit(Surv(time = markers_ROIclust_s$timeint_fu, 
+#                    event = markers_ROIclust_s$os_event) ~ cd3plus_foxp3plus + strata(stage) + refage + strata(histotype2), id = "suid", data = markers_ROIclust_s, cut=1700, episode='tgroup')   
+# 
+# tbl3 <- coxph(Surv(time = newdata$tstart, newdata$tstop,
+#                    event = newdata$event) ~ cd3plus_foxp3plus:strata(tgroup) + strata(stage) + refage + strata(histotype2), cluster = suid, 
+#               data =  newdata) %>% 
+#   tbl_regression(exponentiate = TRUE,
+#                  include = 'cd3plus_foxp3plus:strata(tgroup)') %>% bold_p(t = .05) %>% add_nevent(location = "level") %>% add_n(location = "level")
+tbl4 <- coxph(Surv(time = markers_ROIclust_s$timeint_fu, 
+                   event = markers_ROIclust_s$os_event) ~ cd11b + strata(stage) + refage + strata(histotype2), 
+              cluster = suid, data =  markers_ROIclust_s) %>%
+  tbl_regression(exponentiate = TRUE,
+                 include = cd11b) %>% bold_p(t = .05) %>% add_nevent(location = "level") %>% add_n(location = "level")
+tbl5 <- coxph(Surv(time = markers_ROIclust_s$timeint_fu, 
+                   event = markers_ROIclust_s$os_event) ~ cd11bplus_cd15plus + strata(stage) + refage + strata(histotype2), 
+              cluster = suid, data =  markers_ROIclust_s) %>%
+  tbl_regression(exponentiate = TRUE,
+                 include = cd11bplus_cd15plus) %>% bold_p(t = .05) %>% add_nevent(location = "level") %>% add_n(location = "level")
+
+tbl12 <- tbl_stack(list(tbl1, tbl2, tbl3, tbl4, tbl5))
+# tbl13 <- tbl_merge(list(tbl10, tbl11, tbl12), tab_spanner = c("**Overall**", "**Tumor**", "**Stroma**"))
+
+
+
+markers_ROIclust_o <- ROI_global %>% 
+    # filter(!str_detect(suid, remove_id_bmi)) %>% 
+  filter(!str_detect(suid, paste0(remove_id, collapse = "|")), 
+         annotation == "Peripheral") %>% 
+  rename(cd3 = cd3_total, cd3plus_cd8plus = cd3plus_cd8plus_total,
+         cd3plus_foxp3plus = cd3plus_foxp3plus_total, 
+         cd11b = cd11b_total, cd11bplus_cd15plus = cd11bplus_cd15plus_total)
+  
+tbl1 <- coxph(Surv(time = markers_ROIclust_o$timeint_fu, 
+                   event = markers_ROIclust_o$os_event) ~ cd3 + strata(stage) + refage + strata(histotype2), 
+              cluster = suid, data =  markers_ROIclust_o)  %>% 
+  tbl_regression(exponentiate = TRUE,
+                 include = cd3) %>% bold_p(t = .05) %>% add_nevent(location = "level") %>% add_n(location = "level")
+tbl2 <- coxph(Surv(time = markers_ROIclust_o$timeint_fu, 
+                   event = markers_ROIclust_o$os_event) ~ cd3plus_cd8plus + strata(stage) + refage + strata(histotype2), 
+              cluster = suid, data =  markers_ROIclust_o) %>%
+  tbl_regression(exponentiate = TRUE,
+                 include = cd3plus_cd8plus) %>% bold_p(t = .05) %>% add_nevent(location = "level") %>% add_n(location = "level")
+tbl3 <- coxph(Surv(time = markers_ROIclust_o$timeint_fu,
+                   event = markers_ROIclust_o$os_event) ~ cd3plus_foxp3plus + strata(stage) + refage + strata(histotype2), 
+              cluster = suid, data =  markers_ROIclust_o) %>%
+  tbl_regression(exponentiate = TRUE,
+                 include = cd3plus_foxp3plus) %>% bold_p(t = .05) %>% add_nevent(location = "level") %>% add_n(location = "level")
+# newdata <- survSplit(Surv(time = markers_ROIclust_o$timeint_fu, 
+#                    event = markers_ROIclust_o$os_event) ~ cd3plus_foxp3plus + strata(stage) + refage + strata(histotype2), id = "suid", data = markers_ROIclust_o, cut=1700, episode='tgroup')   
+# 
+# tbl3 <- coxph(Surv(time = newdata$tstart, newdata$tstop,
+#                    event = newdata$event) ~ cd3plus_foxp3plus:strata(tgroup) + strata(stage) + refage + strata(histotype2), cluster = suid, 
+#               data =  newdata) %>% 
+#   tbl_regression(exponentiate = TRUE,
+#                  include = 'cd3plus_foxp3plus:strata(tgroup)') %>% bold_p(t = .05) %>% add_nevent(location = "level") %>% add_n(location = "level")
+tbl4 <- coxph(Surv(time = markers_ROIclust_o$timeint_fu, 
+                   event = markers_ROIclust_o$os_event) ~ cd11b + strata(stage) + refage + strata(histotype2), 
+              cluster = suid, data =  markers_ROIclust_o) %>%
+  tbl_regression(exponentiate = TRUE,
+                 include = cd11b) %>% bold_p(t = .05) %>% add_nevent(location = "level") %>% add_n(location = "level")
+tbl5 <- coxph(Surv(time = markers_ROIclust_o$timeint_fu, 
+                   event = markers_ROIclust_o$os_event) ~ cd11bplus_cd15plus + strata(stage) + refage + strata(histotype2), 
+              cluster = suid, data =  markers_ROIclust_o) %>%
+  tbl_regression(exponentiate = TRUE,
+                 include = cd11bplus_cd15plus) %>% bold_p(t = .05) %>% add_nevent(location = "level") %>% add_n(location = "level")
+
+tbl13 <- tbl_stack(list(tbl1, tbl2, tbl3, tbl4, tbl5))
+
+markers_ROIclust_t <- ROI_global %>% 
+    # filter(!str_detect(suid, remove_id_bmi)) %>% 
+  filter(!str_detect(suid, paste0(remove_id, collapse = "|")), 
+         annotation == "Peripheral") %>%
+  rename(cd3 = cd3_tumor, cd3plus_cd8plus = cd3plus_cd8plus_tumor,
+         cd3plus_foxp3plus = cd3plus_foxp3plus_tumor, 
+         cd11b = cd11b_tumor, cd11bplus_cd15plus = cd11bplus_cd15plus_tumor)
+  
+tbl1 <- coxph(Surv(time = markers_ROIclust_t$timeint_fu, 
+                   event = markers_ROIclust_t$os_event) ~ cd3 + strata(stage) + refage + strata(histotype2), 
+              cluster = suid, data =  markers_ROIclust_t)  %>% 
+  tbl_regression(exponentiate = TRUE,
+                 include = cd3) %>% bold_p(t = .05) %>% add_nevent(location = "level") %>% add_n(location = "level")
+tbl2 <- coxph(Surv(time = markers_ROIclust_t$timeint_fu, 
+                   event = markers_ROIclust_t$os_event) ~ cd3plus_cd8plus + strata(stage) + refage + strata(histotype2), 
+              cluster = suid, data =  markers_ROIclust_t) %>%
+  tbl_regression(exponentiate = TRUE,
+                 include = cd3plus_cd8plus) %>% bold_p(t = .05) %>% add_nevent(location = "level") %>% add_n(location = "level")
+tbl3 <- coxph(Surv(time = markers_ROIclust_t$timeint_fu,
+                   event = markers_ROIclust_t$os_event) ~ cd3plus_foxp3plus + strata(stage) + refage + strata(histotype2), 
+              cluster = suid, data =  markers_ROIclust_t) %>%
+  tbl_regression(exponentiate = TRUE,
+                 include = cd3plus_foxp3plus) %>% bold_p(t = .05) %>% add_nevent(location = "level") %>% add_n(location = "level")
+# newdata <- survSplit(Surv(time = markers_ROIclust_t$timeint_fu, 
+#                    event = markers_ROIclust_t$os_event) ~ cd3plus_foxp3plus + strata(stage) + refage + strata(histotype2), id = "suid", data = markers_ROIclust_t, cut=1700, episode='tgroup')   
+# 
+# tbl3 <- coxph(Surv(time = newdata$tstart, newdata$tstop,
+#                    event = newdata$event) ~ cd3plus_foxp3plus:strata(tgroup) + strata(stage) + refage + strata(histotype2), cluster = suid, 
+#               data =  newdata) %>% 
+#   tbl_regression(exponentiate = TRUE,
+#                  include = 'cd3plus_foxp3plus:strata(tgroup)') %>% bold_p(t = .05) %>% add_nevent(location = "level") %>% add_n(location = "level")
+tbl4 <- coxph(Surv(time = markers_ROIclust_t$timeint_fu, 
+                   event = markers_ROIclust_t$os_event) ~ cd11b + strata(stage) + refage + strata(histotype2), 
+              cluster = suid, data =  markers_ROIclust_t) %>%
+  tbl_regression(exponentiate = TRUE,
+                 include = cd11b) %>% bold_p(t = .05) %>% add_nevent(location = "level") %>% add_n(location = "level")
+tbl5 <- coxph(Surv(time = markers_ROIclust_t$timeint_fu, 
+                   event = markers_ROIclust_t$os_event) ~ cd11bplus_cd15plus + strata(stage) + refage + strata(histotype2), 
+              cluster = suid, data =  markers_ROIclust_t) %>%
+  tbl_regression(exponentiate = TRUE,
+                 include = cd11bplus_cd15plus) %>% bold_p(t = .05) %>% add_nevent(location = "level") %>% add_n(location = "level")
+
+tbl14 <- tbl_stack(list(tbl1, tbl2, tbl3, tbl4, tbl5))
+
+markers_ROIclust_s <- ROI_global %>% 
+    # filter(!str_detect(suid, remove_id_bmi)) %>% 
+  filter(!str_detect(suid, paste0(remove_id, collapse = "|")), 
+         annotation == "Peripheral") %>% 
+  rename(cd3 = cd3_stroma, cd3plus_cd8plus = cd3plus_cd8plus_stroma,
+         cd3plus_foxp3plus = cd3plus_foxp3plus_stroma, 
+         cd11b = cd11b_stroma, cd11bplus_cd15plus = cd11bplus_cd15plus_stroma)
+
+tbl1 <- coxph(Surv(time = markers_ROIclust_s$timeint_fu, 
+                   event = markers_ROIclust_s$os_event) ~ cd3 + strata(stage) + refage + strata(histotype2), 
+              cluster = suid, data =  markers_ROIclust_s) %>%
+  tbl_regression(exponentiate = TRUE,
+                 include = cd3) %>% bold_p(t = .05) %>% add_nevent(location = "level") %>% add_n(location = "level")
+tbl2 <- coxph(Surv(time = markers_ROIclust_s$timeint_fu, 
+                   event = markers_ROIclust_s$os_event) ~ cd3plus_cd8plus + strata(stage) + refage + strata(histotype2), 
+              cluster = suid, data =  markers_ROIclust_s) %>%
+  tbl_regression(exponentiate = TRUE,
+                 include = cd3plus_cd8plus) %>% bold_p(t = .05) %>% add_nevent(location = "level") %>% add_n(location = "level")
+tbl3 <- coxph(Surv(time = markers_ROIclust_s$timeint_fu,
+                   event = markers_ROIclust_s$os_event) ~ cd3plus_foxp3plus + strata(stage) + refage + strata(histotype2), 
+              cluster = suid, data =  markers_ROIclust_s) %>%
+  tbl_regression(exponentiate = TRUE,
+                 include = cd3plus_foxp3plus) %>% bold_p(t = .05) %>% add_nevent(location = "level") %>% add_n(location = "level")
+# newdata <- survSplit(Surv(time = markers_ROIclust_s$timeint_fu, 
+#                    event = markers_ROIclust_s$os_event) ~ cd3plus_foxp3plus + strata(stage) + refage + strata(histotype2), id = "suid", data = markers_ROIclust_s, cut=1700, episode='tgroup')   
+# 
+# tbl3 <- coxph(Surv(time = newdata$tstart, newdata$tstop,
+#                    event = newdata$event) ~ cd3plus_foxp3plus:strata(tgroup) + strata(stage) + refage + strata(histotype2), cluster = suid, 
+#               data =  newdata) %>% 
+#   tbl_regression(exponentiate = TRUE,
+#                  include = 'cd3plus_foxp3plus:strata(tgroup)') %>% bold_p(t = .05) %>% add_nevent(location = "level") %>% add_n(location = "level")
+tbl4 <- coxph(Surv(time = markers_ROIclust_s$timeint_fu, 
+                   event = markers_ROIclust_s$os_event) ~ cd11b + strata(stage) + refage + strata(histotype2), cluster = suid, data =  markers_ROIclust_s) %>%
+  tbl_regression(exponentiate = TRUE,
+                 include = cd11b) %>% bold_p(t = .05) %>% add_nevent(location = "level") %>% add_n(location = "level")
+tbl5 <- coxph(Surv(time = markers_ROIclust_s$timeint_fu, 
+                   event = markers_ROIclust_s$os_event) ~ cd11bplus_cd15plus + strata(stage) + refage + strata(histotype2), cluster = suid, data =  markers_ROIclust_s) %>%
+  tbl_regression(exponentiate = TRUE,
+                 include = cd11bplus_cd15plus) %>% bold_p(t = .05) %>% add_nevent(location = "level") %>% add_n(location = "level")
+
+tbl15 <- tbl_stack(list(tbl1, tbl2, tbl3, tbl4, tbl5))
+# tbl14 <- tbl_merge(list(tbl13, tbl14, tbl15), tab_spanner = c("**Overall**", "**Tumor**", "**Stroma**"))
+```
+
+## Overall
+```{r}
+tbl16 <- tbl_stack(list(tbl10, tbl13), group_header = c("Intratumoral", "Peripheral")) %>% as_gt()
+tbl16
+# gt::gtsave(tbl16, paste0(path, "/Table 3. Adjusted hazard ratios and 95% confidence intervals in Overall ROIs cluster option_pdf"))
+```
+
+## Tumor
+```{r}
+tbl17 <- tbl_stack(list(tbl11, tbl14), group_header = c("Intratumoral", "Peripheral")) %>% as_gt()
+tbl17
+# gt::gtsave(tbl17, paste0(path, "/Table 3. Adjusted hazard ratios and 95% confidence intervals in Tumor ROIs cluster option_pdf"))
+```
+
+## Stroma
+```{r}
+tbl18 <- tbl_stack(list(tbl12, tbl15), group_header = c("Intratumoral", "Peripheral")) %>% as_gt()
+tbl18
+# gt::gtsave(tbl18, paste0(path, "/Table 3. Adjusted hazard ratios and 95% confidence intervals in Stroma ROIs cluster option_pdf"))
+```
+<br>
+
+## Cox Prop Assumption
+```{r}
+markers_ROIclust_o <- ROI_global %>%
+    # filter(!str_detect(suid, remove_id_bmi)) %>% 
+  filter(annotation == "Intratumoral") %>% 
+  rename(cd3 = cd3_total, cd3plus_cd8plus = cd3plus_cd8plus_total,
+         cd3plus_foxp3plus = cd3plus_foxp3plus_total, 
+         cd11b = cd11b_total, cd11bplus_cd15plus = cd11bplus_cd15plus_total)
+  
+coxph(Surv(time = markers_ROIclust_o$timeint_fu, 
+                   event = markers_ROIclust_o$os_event) ~ cd3 + strata(stage) + refage + strata(histotype2), 
+              cluster = suid, data =  markers_ROIclust_o)  %>% 
+  cox.zph()
+coxph(Surv(time = markers_ROIclust_o$timeint_fu, 
+                   event = markers_ROIclust_o$os_event) ~ cd3plus_cd8plus + strata(stage) + refage + strata(histotype2), 
+              cluster = suid, data =  markers_ROIclust_o) %>%
+  cox.zph()
+coxph(Surv(time = markers_ROIclust_o$timeint_fu,
+                   event = markers_ROIclust_o$os_event) ~ cd3plus_foxp3plus + strata(stage) + refage + strata(histotype2), 
+              cluster = suid, data =  markers_ROIclust_o) %>%
+  cox.zph()
+
+
+coxph(Surv(time = markers_ROIclust_o$timeint_fu, 
+                   event = markers_ROIclust_o$os_event) ~ cd11b + strata(stage) + refage + strata(histotype2), 
+              cluster = suid, data =  markers_ROIclust_o) %>%
+  cox.zph()
+coxph(Surv(time = markers_ROIclust_o$timeint_fu, 
+                   event = markers_ROIclust_o$os_event) ~ cd11bplus_cd15plus + strata(stage) + refage + strata(histotype2), 
+              cluster = suid, data =  markers_ROIclust_o) %>%
+  cox.zph()
+
+markers_ROIclust_t <- ROI_global %>% 
+    # filter(!str_detect(suid, remove_id_bmi)) %>% 
+    filter(annotation == "Intratumoral") %>% 
+  rename(cd3 = cd3_tumor, cd3plus_cd8plus = cd3plus_cd8plus_tumor,
+         cd3plus_foxp3plus = cd3plus_foxp3plus_tumor, 
+         cd11b = cd11b_tumor, cd11bplus_cd15plus = cd11bplus_cd15plus_tumor)
+  
+coxph(Surv(time = markers_ROIclust_t$timeint_fu, 
+                   event = markers_ROIclust_t$os_event) ~ cd3 + strata(stage) + refage + strata(histotype2), 
+              cluster = suid, data =  markers_ROIclust_t)  %>% 
+  cox.zph()
+coxph(Surv(time = markers_ROIclust_t$timeint_fu, 
+                   event = markers_ROIclust_t$os_event) ~ cd3plus_cd8plus + strata(stage) + refage + strata(histotype2), 
+              cluster = suid, data =  markers_ROIclust_t) %>%
+  cox.zph()
+coxph(Surv(time = markers_ROIclust_t$timeint_fu,
+                   event = markers_ROIclust_t$os_event) ~ cd3plus_foxp3plus + strata(stage) + refage + strata(histotype2), 
+              cluster = suid, data =  markers_ROIclust_t) %>%
+  cox.zph()
+
+coxph(Surv(time = markers_ROIclust_t$timeint_fu, 
+                   event = markers_ROIclust_t$os_event) ~ cd11b + strata(stage) + refage + strata(histotype2), 
+              cluster = suid, data =  markers_ROIclust_t) %>%
+  cox.zph()
+coxph(Surv(time = markers_ROIclust_t$timeint_fu, 
+                   event = markers_ROIclust_t$os_event) ~ cd11bplus_cd15plus + strata(stage) + refage + strata(histotype2), 
+              cluster = suid, data =  markers_ROIclust_t) %>%
+  cox.zph()
+
+
+markers_ROIclust_s <- ROI_global %>% 
+    # filter(!str_detect(suid, remove_id_bmi)) %>% 
+    filter(annotation == "Intratumoral") %>% 
+  rename(cd3 = cd3_stroma, cd3plus_cd8plus = cd3plus_cd8plus_stroma,
+         cd3plus_foxp3plus = cd3plus_foxp3plus_stroma, 
+         cd11b = cd11b_stroma, cd11bplus_cd15plus = cd11bplus_cd15plus_stroma)
+
+coxph(Surv(time = markers_ROIclust_s$timeint_fu, 
+                   event = markers_ROIclust_s$os_event) ~ cd3 + strata(stage) + refage + strata(histotype2), 
+              cluster = suid, data =  markers_ROIclust_s) %>%
+  cox.zph()
+coxph(Surv(time = markers_ROIclust_s$timeint_fu, 
+                   event = markers_ROIclust_s$os_event) ~ cd3plus_cd8plus + strata(stage) + refage + strata(histotype2), 
+              cluster = suid, data =  markers_ROIclust_s) %>%
+  cox.zph()
+coxph(Surv(time = markers_ROIclust_s$timeint_fu,
+                   event = markers_ROIclust_s$os_event) ~ cd3plus_foxp3plus + strata(stage) + refage + strata(histotype2), 
+              cluster = suid, data =  markers_ROIclust_s) %>%
+  cox.zph()
+
+coxph(Surv(time = markers_ROIclust_s$timeint_fu, 
+                   event = markers_ROIclust_s$os_event) ~ cd11b + strata(stage) + refage + strata(histotype2), 
+              cluster = suid, data =  markers_ROIclust_s) %>%
+  cox.zph()
+coxph(Surv(time = markers_ROIclust_s$timeint_fu, 
+                   event = markers_ROIclust_s$os_event) ~ cd11bplus_cd15plus + strata(stage) + refage + strata(histotype2), 
+              cluster = suid, data =  markers_ROIclust_s) %>%
+  cox.zph()
+
+markers_ROIclust_o <- ROI_global %>% 
+    # filter(!str_detect(suid, remove_id_bmi)) %>% 
+  filter(!str_detect(suid, paste0(remove_id, collapse = "|")), 
+         annotation == "Peripheral") %>% 
+  rename(cd3 = cd3_total, cd3plus_cd8plus = cd3plus_cd8plus_total,
+         cd3plus_foxp3plus = cd3plus_foxp3plus_total, 
+         cd11b = cd11b_total, cd11bplus_cd15plus = cd11bplus_cd15plus_total)
+  
+coxph(Surv(time = markers_ROIclust_o$timeint_fu, 
+                   event = markers_ROIclust_o$os_event) ~ cd3 + strata(stage) + refage + strata(histotype2), 
+              cluster = suid, data =  markers_ROIclust_o)  %>% 
+  cox.zph()
+coxph(Surv(time = markers_ROIclust_o$timeint_fu, 
+                   event = markers_ROIclust_o$os_event) ~ cd3plus_cd8plus + strata(stage) + refage + strata(histotype2), 
+              cluster = suid, data =  markers_ROIclust_o) %>%
+  cox.zph()
+coxph(Surv(time = markers_ROIclust_o$timeint_fu,
+                   event = markers_ROIclust_o$os_event) ~ cd3plus_foxp3plus + strata(stage) + refage + strata(histotype2), 
+              cluster = suid, data =  markers_ROIclust_o) %>%
+  cox.zph()
+
+coxph(Surv(time = markers_ROIclust_o$timeint_fu, 
+                   event = markers_ROIclust_o$os_event) ~ cd11b + strata(stage) + refage + strata(histotype2), 
+              cluster = suid, data =  markers_ROIclust_o) %>%
+  cox.zph()
+coxph(Surv(time = markers_ROIclust_o$timeint_fu, 
+                   event = markers_ROIclust_o$os_event) ~ cd11bplus_cd15plus + strata(stage) + refage + strata(histotype2), 
+              cluster = suid, data =  markers_ROIclust_o) %>%
+  cox.zph()
+
+markers_ROIclust_t <- ROI_global %>% 
+    # filter(!str_detect(suid, remove_id_bmi)) %>% 
+  filter(!str_detect(suid, paste0(remove_id, collapse = "|")), 
+         annotation == "Peripheral") %>%
+  rename(cd3 = cd3_tumor, cd3plus_cd8plus = cd3plus_cd8plus_tumor,
+         cd3plus_foxp3plus = cd3plus_foxp3plus_tumor, 
+         cd11b = cd11b_tumor, cd11bplus_cd15plus = cd11bplus_cd15plus_tumor)
+  
+coxph(Surv(time = markers_ROIclust_t$timeint_fu, 
+                   event = markers_ROIclust_t$os_event) ~ cd3 + strata(stage) + refage + strata(histotype2), 
+              cluster = suid, data =  markers_ROIclust_t)  %>% 
+  cox.zph()
+coxph(Surv(time = markers_ROIclust_t$timeint_fu, 
+                   event = markers_ROIclust_t$os_event) ~ cd3plus_cd8plus + strata(stage) + refage + strata(histotype2), 
+              cluster = suid, data =  markers_ROIclust_t) %>%
+  cox.zph()
+coxph(Surv(time = markers_ROIclust_t$timeint_fu,
+                   event = markers_ROIclust_t$os_event) ~ cd3plus_foxp3plus + strata(stage) + refage + strata(histotype2), 
+              cluster = suid, data =  markers_ROIclust_t) %>%
+  cox.zph()
+
+coxph(Surv(time = markers_ROIclust_t$timeint_fu, 
+                   event = markers_ROIclust_t$os_event) ~ cd11b + strata(stage) + refage + strata(histotype2), 
+              cluster = suid, data =  markers_ROIclust_t) %>%
+  cox.zph()
+coxph(Surv(time = markers_ROIclust_t$timeint_fu, 
+                   event = markers_ROIclust_t$os_event) ~ cd11bplus_cd15plus + strata(stage) + refage + strata(histotype2), 
+              cluster = suid, data =  markers_ROIclust_t) %>%
+  cox.zph()
+
+markers_ROIclust_s <- ROI_global %>% 
+    # filter(!str_detect(suid, remove_id_bmi)) %>% 
+  filter(!str_detect(suid, paste0(remove_id, collapse = "|")), 
+         annotation == "Peripheral") %>% 
+  rename(cd3 = cd3_stroma, cd3plus_cd8plus = cd3plus_cd8plus_stroma,
+         cd3plus_foxp3plus = cd3plus_foxp3plus_stroma, 
+         cd11b = cd11b_stroma, cd11bplus_cd15plus = cd11bplus_cd15plus_stroma)
+
+coxph(Surv(time = markers_ROIclust_s$timeint_fu, 
+                   event = markers_ROIclust_s$os_event) ~ cd3 + strata(stage) + refage + strata(histotype2), 
+              cluster = suid, data =  markers_ROIclust_s) %>%
+  cox.zph()
+tbl2 <- coxph(Surv(time = markers_ROIclust_s$timeint_fu, 
+                   event = markers_ROIclust_s$os_event) ~ cd3plus_cd8plus + strata(stage) + refage + strata(histotype2), 
+              cluster = suid, data =  markers_ROIclust_s) %>%
+  cox.zph()
+coxph(Surv(time = markers_ROIclust_s$timeint_fu,
+                   event = markers_ROIclust_s$os_event) ~ cd3plus_foxp3plus + strata(stage) + refage + strata(histotype2), 
+              cluster = suid, data =  markers_ROIclust_s) %>%
+  cox.zph()
+
+coxph(Surv(time = markers_ROIclust_s$timeint_fu, 
+                   event = markers_ROIclust_s$os_event) ~ cd11b + strata(stage) + refage + strata(histotype2), cluster = suid, data =  markers_ROIclust_s) %>%
+  cox.zph()
+coxph(Surv(time = markers_ROIclust_s$timeint_fu, 
+                   event = markers_ROIclust_s$os_event) ~ cd11bplus_cd15plus + strata(stage) + refage + strata(histotype2), cluster = suid, data =  markers_ROIclust_s) %>%
+  cox.zph()
+
+```
+
+
+# Frequency distribution of the number of cases
+<br>
+
+<!-- **Removed 4 patients no BMI** -->
+
+```{r}
+markers_ROI_o <- markers_ROI %>%
+    # filter(!str_detect(suid, remove_id_bmi)) %>% 
+  rename(cd3 = cd3_total_i, cd3plus_cd8plus = cd3plus_cd8plus_total_i,
+         cd3plus_foxp3plus = cd3plus_foxp3plus_total_i,
+         cd11b = cd11b_total_i, cd11bplus_cd15plus = cd11bplus_cd15plus_total_i)
+tbl10 <- markers_ROI_o %>% 
+  select(cd3, cd3plus_cd8plus,
+         cd3plus_foxp3plus, 
+         cd11b, cd11bplus_cd15plus, vitalstatus) %>% 
+  tbl_summary(by= vitalstatus, statistic = list(all_categorical() ~ "{n}")) %>% 
+      add_overall() %>% bold_labels()
+
+markers_ROI_t <- markers_ROI %>%
+    # filter(!str_detect(suid, remove_id_bmi)) %>% 
+  rename(cd3 = cd3_tumor_i, cd3plus_cd8plus = cd3plus_cd8plus_tumor_i,
+         cd3plus_foxp3plus = cd3plus_foxp3plus_tumor_i,
+         cd11b = cd11b_tumor_i, cd11bplus_cd15plus = cd11bplus_cd15plus_tumor_i)
+tbl11 <- markers_ROI_t %>% 
+  select(cd3, cd3plus_cd8plus,
+         cd3plus_foxp3plus, 
+         cd11b, cd11bplus_cd15plus, vitalstatus) %>% 
+  tbl_summary(by= vitalstatus, statistic = list(all_categorical() ~ "{n}")) %>% 
+      add_overall() %>% bold_labels()
+
+markers_ROI_s <- markers_ROI %>%
+    # filter(!str_detect(suid, remove_id_bmi)) %>% 
+  rename(cd3 = cd3_stroma_i, cd3plus_cd8plus = cd3plus_cd8plus_stroma_i,
+         cd3plus_foxp3plus = cd3plus_foxp3plus_stroma_i,
+         cd11b = cd11b_stroma_i, cd11bplus_cd15plus = cd11bplus_cd15plus_stroma_i)
+tbl12 <- markers_ROI_s %>% 
+  select(cd3, cd3plus_cd8plus,
+         cd3plus_foxp3plus, 
+         cd11b, cd11bplus_cd15plus, vitalstatus) %>% 
+  tbl_summary(by= vitalstatus, statistic = list(all_categorical() ~ "{n}")) %>% 
+      add_overall() %>% bold_labels()
+# tbl13 <- tbl_merge(list(tbl10, tbl11, tbl12), tab_spanner = c("**Overall**", "**Tumor**", "**Stroma**"))
+
+markers_ROI_o <- markers_ROI %>%
+    # filter(!str_detect(suid, remove_id_bmi)) %>% 
+  rename(cd3 = cd3_total_p, cd3plus_cd8plus = cd3plus_cd8plus_total_p,
+         cd3plus_foxp3plus = cd3plus_foxp3plus_total_p,
+         cd11b = cd11b_total_p, cd11bplus_cd15plus = cd11bplus_cd15plus_total_p)
+tbl13 <- markers_ROI_o %>% 
+  select(cd3, cd3plus_cd8plus,
+         cd3plus_foxp3plus, 
+         cd11b, cd11bplus_cd15plus, vitalstatus) %>% 
+  tbl_summary(by= vitalstatus, statistic = list(all_categorical() ~ "{n}")) %>% 
+      add_overall() %>% bold_labels()
+
+markers_ROI_t <- markers_ROI %>%
+    # filter(!str_detect(suid, remove_id_bmi)) %>% 
+  rename(cd3 = cd3_tumor_p, cd3plus_cd8plus = cd3plus_cd8plus_tumor_p,
+         cd3plus_foxp3plus = cd3plus_foxp3plus_tumor_p,
+         cd11b = cd11b_tumor_p, cd11bplus_cd15plus = cd11bplus_cd15plus_tumor_p)
+tbl14 <- markers_ROI_t %>% 
+  select(cd3, cd3plus_cd8plus,
+         cd3plus_foxp3plus, 
+         cd11b, cd11bplus_cd15plus, vitalstatus) %>% 
+  tbl_summary(by= vitalstatus, statistic = list(all_categorical() ~ "{n}")) %>% 
+      add_overall() %>% bold_labels()
+
+markers_ROI_s <- markers_ROI %>%
+    # filter(!str_detect(suid, remove_id_bmi)) %>% 
+  rename(cd3 = cd3_stroma_p, cd3plus_cd8plus = cd3plus_cd8plus_stroma_p,
+         cd3plus_foxp3plus = cd3plus_foxp3plus_stroma_p,
+         cd11b = cd11b_stroma_p, cd11bplus_cd15plus = cd11bplus_cd15plus_stroma_p)
+tbl15 <- markers_ROI_s %>% 
+  select(cd3, cd3plus_cd8plus,
+         cd3plus_foxp3plus, 
+         cd11b, cd11bplus_cd15plus, vitalstatus) %>% 
+  tbl_summary(by= vitalstatus, statistic = list(all_categorical() ~ "{n}")) %>% 
+      add_overall() %>% bold_labels()
+
+# tbl14 <- tbl_merge(list(tbl13, tbl14, tbl15), tab_spanner = c("**Overall**", "**Tumor**", "**Stroma**"))
+```
+
+### Overall
+```{r}
+tbl16 <- tbl_stack(list(tbl10, tbl13), group_header = c("Intratumoral", "Peripheral")) %>% as_gt()
+tbl16
+# gt::gtsave(tbl16, paste0(path, "/Table Frequency distribution of the number of cases Overall group_pdf"))
+```
+
+### Tumor
+```{r}
+tbl17 <- tbl_stack(list(tbl11, tbl14), group_header = c("Intratumoral", "Peripheral")) %>% as_gt()
+tbl17
+# gt::gtsave(tbl17, paste0(path, "/Table Frequency distribution of the number of cases Tumor group_pdf"))
+```
+
+### Stroma
+```{r}
+tbl18 <- tbl_stack(list(tbl12, tbl15), group_header = c("Intratumoral", "Peripheral")) %>% as_gt()
+tbl18
+# gt::gtsave(tbl18, paste0(path, "/Table Frequency distribution of the number of cases Stroma group_pdf"))
+```
+
+***
+
+
+<br>
+
+# KM Low/High group
+### Intratumoral cd3
+```{r, fig.height=8}
+clin_surv <- ROI_global %>% 
+  filter(annotation == "Intratumoral") %>% 
+  distinct(suid, .keep_all = TRUE)
+mysurv <- Surv(time = clin_surv$timeint_fu, event = clin_surv$os_event)
+myplot <- survfit(mysurv~clin_surv$cd3_total)
+
+# pdf(paste0(path, "/Survivals/Immune cell clusters/OS cd3 grp matched pop_pdf"), width = 8, height = 7)
+ggsurvplot(myplot, data = clin_surv,
+           title = "Survival analysis", subtitle = "Grouping based on intratumoral overall cd3+ cells",
+           font.main = c(14, "bold", "black"), font.subtitle = c(6, "plain", "black"),
+           xlab = "Time (days)", legend.title = "", 
+           legend.labs = c("High", "Low"),
+           palette = c("grey27", "grey77"),
+           pval = TRUE,
+           conf_int = FALSE,
+           # Add risk table
+           tables.height = 0.2,
+           risk.table.title = "Risk table",
+           risk.table = TRUE,
+           risk.table.y.text = FALSE,
+           risk.table.fontsize = 4,
+           tables.theme = theme_survminer(base_size = 5,
+                                          font.main = c(16, "bold", "black"),
+                                          font.x = c(14, "bold", "black"),
+                                          font.y = c(16, "bold", "transparent"),
+                                          font.tickslab = c(14, "bold", "black"))
+) + guides(colour = guide_legend(ncol = 2))
+# myplot$plot <- myplot$plot + 
+#   scale_x_continuous(breaks = c(seq(0, 8000, 2000)))
+# myplot
+# dev.off()
+```
+
+### Peripheral cd3
+```{r, fig.height=8}
+clin_surv <- ROI_global %>% 
+  filter(annotation == "Peripheral") %>% 
+  distinct(suid, .keep_all = TRUE)
+mysurv <- Surv(time = clin_surv$timeint_fu, event = clin_surv$os_event)
+myplot <- survfit(mysurv~clin_surv$cd3_total)
+
+# pdf(paste0(path, "/Survivals/Immune cell clusters/OS cd3 grp matched pop_pdf"), width = 8, height = 7)
+ggsurvplot(myplot, data = clin_surv,
+           title = "Survival analysis", subtitle = "Grouping based on peripheral overall cd3+ cells",
+           font.main = c(14, "bold", "black"), font.subtitle = c(6, "plain", "black"),
+           xlab = "Time (days)", legend.title = "", 
+           legend.labs = c("High", "Low"),
+           palette = c("grey27", "grey77"),
+           pval = TRUE,
+           conf_int = FALSE,
+           # Add risk table
+           tables.height = 0.2,
+           risk.table.title = "Risk table",
+           risk.table = TRUE,
+           risk.table.y.text = FALSE,
+           risk.table.fontsize = 4,
+           tables.theme = theme_survminer(base_size = 5,
+                                          font.main = c(16, "bold", "black"),
+                                          font.x = c(14, "bold", "black"),
+                                          font.y = c(16, "bold", "transparent"),
+                                          font.tickslab = c(14, "bold", "black"))
+) + guides(colour = guide_legend(ncol = 2))
+# myplot$plot <- myplot$plot + 
+#   scale_x_continuous(breaks = c(seq(0, 8000, 2000)))
+# myplot
+```
+
+
+# Adjusted KM Low/High group 
+## Overall "Surv ~ cd3_total + strata(stage) + refage + strata(histotype2), cluster = suid"
+### Intratumoral total cd3
+```{r}
+clin_surv <- ROI_global %>% 
+  filter(annotation == "Intratumoral") %>% 
+  as.data.frame()
+
+fit2 <- coxph(Surv(time = timeint_fu, event = os_event) ~ cd3_total + strata(stage) + refage + strata(histotype2), cluster = suid, data = clin_surv)
+ggadjustedcurves(fit2, data = clin_surv, 
+                 method = "average", 
+                 variable = "cd3_total",
+                 palette = c("grey27", "grey77"))
+```
+
+### Peripheral total cd3
+```{r}
+clin_surv <- ROI_global %>% 
+  filter(annotation == "Peripheral") %>% 
+  as.data.frame()
+
+fit2 <- coxph(Surv(time = timeint_fu, event = os_event) ~ cd3_total + strata(stage) + refage + strata(histotype2), cluster = suid, data = clin_surv)
+ggadjustedcurves(fit2, data = clin_surv, 
+                 method = "average", 
+                 variable = "cd3_total",
+                 palette = c("grey27", "grey77"))
+```
+
+
+# HR Cluster
+`r emo::ji("pad")` Note to remember. The cluster were built on the data with the averaged measurement. I am not using the cluster option in the coxph even though I saw a really slight change in CI values but not in p value.  
+
+<!-- **Removed 4 patients no BMI** -->
+
+```{r Table HR cluster}
+coxph(Surv(time = markers_ROI$timeint_fu, 
+                   event = markers_ROI$os_event) ~ clusters_all_IandP + strata(stage) + refage + strata(histotype2), data =  markers_ROI)  %>% 
+  tbl_regression(exponentiate = TRUE#,
+                 # include = clusters_all_IandP
+                 ) %>% bold_p(t = .05) %>% add_nevent(location = "level") %>% add_n(location = "level")
+
+coxph(Surv(time = markers_ROI$timeint_fu, 
+                   event = markers_ROI$os_event) ~ clusters_all_IandP + strata(stage) + refage + strata(histotype2), data =  markers_ROI)  %>% 
+  cox.zph()
+```
+
+# KM Cluster group
+
+```{r, fig.height=8}
+clin_surv <- markers_ROI
+mysurv <- Surv(time = clin_surv$timeint_fu, event = clin_surv$os_event)
+myplot <- survfit(mysurv~clin_surv$clusters_all_IandP)
+
+ggsurvplot(myplot, data = clin_surv,
+           title = "Survival analysis", #subtitle = "Grouping based on intratumoral overall cd3+ cells",
+           font.main = c(14, "bold", "black"), font.subtitle = c(6, "plain", "black"),
+           xlab = "Time (days)", legend.title = "", 
+           legend.labs = c("high", "low", "mid",
+           "mid-high", "mid-low"),
+           palette = c("#FDE725FF", "#440154FF", "#21908CFF",
+                       "#5DC863FF", "#3B528BFF"),
+           pval = TRUE,
+           conf_int = FALSE,
+           # Add risk table
+           tables.height = 0.25,
+           risk.table.title = "Risk table",
+           risk.table = TRUE,
+           risk.table.y.text = FALSE,
+           risk.table.fontsize = 4,
+           tables.theme = theme_survminer(base_size = 5,
+                                          font.main = c(16, "bold", "black"),
+                                          font.x = c(14, "bold", "black"),
+                                          font.y = c(16, "bold", "transparent"),
+                                          font.tickslab = c(14, "bold", "black"))
+) + guides(colour = guide_legend(ncol = 2))
+# myplot$plot <- myplot$plot + 
+#   scale_x_continuous(breaks = c(seq(0, 8000, 2000)))
+# myplot
+# dev.off()
+```
+<br>
+
+
+# HR immunoscore
+`r emo::ji("pad")` Note to remember. The immunoscore were built on the data with the averaged measurement. I am not using the cluster option in the coxph even though I saw a really slight change in CI and p value.  
+
+```{r Table HR Immunoscore}
+  
+tbl1 <- coxph(Surv(time = markers_ROI$timeint_fu, 
+                   event = markers_ROI$os_event) ~ immunoscore_patients + strata(stage) + refage + strata(histotype2), data =  markers_ROI)  %>% 
+  tbl_regression(exponentiate = TRUE,
+                 include = immunoscore_patients) %>% bold_p(t = .05) %>% add_nevent(location = "level") %>% add_n(location = "level")
+tbl2 <- coxph(Surv(time = markers_ROI$timeint_fu, 
+                   event = markers_ROI$os_event) ~ immunoscore_2018lancet_patients + strata(stage) + refage + strata(histotype2), data =  markers_ROI) %>%
+  tbl_regression(exponentiate = TRUE,
+                 include = immunoscore_2018lancet_patients) %>% bold_p(t = .05) %>% add_nevent(location = "level") %>% add_n(location = "level")
+
+tbl10 <- tbl_stack(list(tbl1, tbl2))
+tbl10
+
+coxph(Surv(time = markers_ROI$timeint_fu, 
+                   event = markers_ROI$os_event) ~ immunoscore_patients + strata(stage) + refage + strata(histotype2), data =  markers_ROI)  %>% 
+  cox.zph()
+coxph(Surv(time = markers_ROI$timeint_fu, 
+                   event = markers_ROI$os_event) ~ immunoscore_2018lancet_patients + strata(stage) + refage + strata(histotype2), data =  markers_ROI) %>% 
+  cox.zph()
+```
+<br>
+
+# KM Immunoscore group
+```{r, fig.height=8}
+clin_surv <- markers_ROI
+mysurv <- Surv(time = clin_surv$timeint_fu, event = clin_surv$os_event)
+myplot <- survfit(mysurv~clin_surv$immunoscore_2018lancet_patients)
+
+ggsurvplot(myplot, data = clin_surv,
+           title = "Survival analysis", #subtitle = "Grouping based on intratumoral overall cd3+ cells",
+           font.main = c(14, "bold", "black"), font.subtitle = c(6, "plain", "black"),
+           xlab = "Time (days)", legend.title = "", 
+           legend.labs = c("High", "Intermediate", "Low"),
+           palette = c("#7D2482FF", "#C83E73FF", "#Fcd225FF"),
+           pval = TRUE,
+           conf_int = FALSE,
+           # Add risk table
+           tables.height = 0.25,
+           risk.table.title = "Risk table",
+           risk.table = TRUE,
+           risk.table.y.text = FALSE,
+           risk.table.fontsize = 4,
+           tables.theme = theme_survminer(base_size = 5,
+                                          font.main = c(16, "bold", "black"),
+                                          font.x = c(14, "bold", "black"),
+                                          font.y = c(16, "bold", "transparent"),
+                                          font.tickslab = c(14, "bold", "black"))
+) + guides(colour = guide_legend(ncol = 2))
+# myplot$plot <- myplot$plot + 
+#   scale_x_continuous(breaks = c(seq(0, 8000, 2000)))
+# myplot
+# dev.off()
+```
+<br>
+<br>
+
+***
+
+```{r echo=FALSE, out.width='30%'}
+knitr::include_graphics('/Users/colinccm/Documents/GitHub/Peres/lab_logo/Peres hex.png')
+```
+
+
+
+
+
+
+
+
