@@ -156,26 +156,36 @@ case_ctrl_data <- bind_rows(aaces_clinical, ncocs_clinical) %>%
     married == 3                                        ~ "divorced/separated",
     married == 4                                        ~ "widowed"
   )) %>% 
-  mutate_at(c("pregever", "nulliparous", "hyster", "hyster1yr", "hyster2yr", "oophor", 
-              "oophor1yr", "tubelig", "tubelig1yr", "ocever", "breastfedever", 
+  mutate_at(c("pregever", "nulliparous", "oophor", 
+              "oophor1yr", "ocever", "breastfedever", 
               "talcever", "talcgen", "talcnongen", "talcpartner", "talc_occ", "brcancer",
               "brcancermom", "brcancersis", "brcancergrandma", "brcanceraunt", "brcancerdau",
               "brcancerdad", "brcancerbro", "brcancerson", "brcancerchildren", "ovcancermom",
               "ovcancersis", "ovcancergrandma", "ovcanceraunt", "ovcancerdaughter", "famhxbr",
-              "famhxov", "endomet", "fibroids", "pid", "pcos", "ovcyst", "anyfhever", "eonlyever",
-              "epever", "eonlyever", "aspirin", "NSAID", "aceta", "hrtdis", "hbp", 
+              "famhxov", "pcos", "ovcyst", "eonlyever",
+              "epever", "eonlyever", "hrtdis", "hbp", 
               "hchol", "osteo", "prvcan", "prbreast",  "prcol", "prcerv", "prlung", "prmel", 
-              "prut", "infert", "trypreg1yr", "mdvisit", "fertmed", "infertsurgivf"), 
+              "prut", "infert", "trypreg1yr", "mdvisit", "fertmed", "infertsurgivf",
+              "neoadj_treat", "adj_treat", "dblkstat_treat"), 
             ~ case_when(
               . == 1                                              ~ "yes",
               . == 2                                              ~ "no",
               TRUE                                                ~ NA_character_
             )) %>%
-  mutate(diab = case_when(
-    diab == 0                                           ~ "no",
-    diab == 1                                           ~ "yes"
-  )) %>% 
-  mutate_at(c("diab"), ~ factor(., levels = c("no", "yes"))) %>% 
+  mutate_at(c("diab", "aspirin", "NSAID", "aceta",
+              "hyster", "hyster1yr", "hyster2yr",
+              "tubelig", "tubelig1yr", "anyfhever", 
+              "endomet", "fibroids", "pid"),
+            ~ case_when(
+              . == 0                                              ~ "no",
+              . == 1                                              ~ "yes",
+              TRUE                                                ~ NA_character_
+            )) %>% 
+  mutate_at(c("diab", "aspirin", "NSAID", "aceta",
+              "hyster", "hyster1yr", "hyster2yr",
+              "tubelig", "tubelig1yr", "anyfhever", 
+              "endomet", "fibroids", "pid"), 
+            ~ factor(., levels = c("no", "yes"))) %>% 
 
   mutate(aspirin_use = factor(aspirin, levels = c("no", "yes"))) %>% 
   mutate(hysterreason = case_when(
@@ -238,7 +248,7 @@ case_ctrl_data <- bind_rows(aaces_clinical, ncocs_clinical) %>%
               )) %>% 
   mutate(smokever = case_when(
     smokever == 1                                       ~ "ever",
-    smokever == 2                                       ~ "never",
+    smokever == 0                                       ~ "never",
     TRUE                                                ~ NA_character_
   )) %>% 
   mutate(smokcurrent = case_when(
@@ -290,6 +300,47 @@ case_ctrl_data <- bind_rows(aaces_clinical, ncocs_clinical) %>%
     BMI_YA >= 25                     ~ "≥25"
   )) %>% 
   mutate(timeint_fu = timelastfu - timeint)
+
+case_ctrl_data <- case_ctrl_data %>% 
+  mutate(smokever = factor(smokever, levels = c("never", "ever"))) %>% 
+  mutate(smokcurrent = factor(smokcurrent, levels = c("never", "former", "current"))) %>% 
+  mutate(packyrs_cat = case_when(
+    packyrs <= 15                        ~ "≤ 15",
+    packyrs > 15                         ~ "> 15",
+    smokcurrent == "never"               ~ "none"
+  )) %>%
+  mutate(packyrs_cat = factor(packyrs_cat, levels = c("none", "≤ 15", "> 15"))) %>% 
+  mutate(education = case_when(
+    education == "high school graduate/GED or less"|
+      education == "some college"                     ~ "didn't graduated",
+    education == "college graduate"|
+      education == "graduate/professional"            ~ "graduated"
+  )) %>% 
+  mutate(education = factor(education, levels = c("graduated", "didn't graduated"))) %>% 
+  mutate(anyfhdur_cat = case_when(
+    anyfhdur <= 100                      ~ "≤ 100",
+    anyfhdur > 100                       ~ "> 100",
+    anyfhever == "no"                    ~ "none"
+  )) %>%
+  mutate(anyfhdur_cat = factor(anyfhdur_cat, levels = c("none", "≤ 100", "> 100"))) %>% 
+  mutate(BMI_recent_grp = case_when(
+    BMI_recent <25                       ~ "<25 kg/m2",
+    BMI_recent >=25 & BMI_recent <= 30   ~ "25-30 kg/m2",
+    BMI_recent > 30.0                    ~ ">30 kg/m2"
+  )) %>% 
+  mutate(BMI_YA_grp = case_when(
+    BMI_YA <25                           ~ "<25 kg/m2",
+    BMI_YA >=25 & BMI_YA <= 30           ~ "25-30 kg/m2",
+    BMI_YA > 30.0                        ~ ">30 kg/m2"
+  )) %>% 
+  mutate(stage = case_when(
+    stage == "Localized"                 ~ "Regional",
+    TRUE                                 ~ stage
+  )) %>% 
+  mutate(married = case_when(
+    married == "married/living as married"      ~ "married",
+    TRUE                                        ~ "others"
+  ))
 
 saveRDS(case_ctrl_data, file = "case_ctrl_data.rds")
 
