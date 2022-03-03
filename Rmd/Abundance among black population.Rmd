@@ -70,35 +70,12 @@ library(ComplexHeatmap)
 ```
 
 ```{r load}
-# Remove these IDs from whole data because 2 are NAs in BMI and 2 are there matched
-# remove_id_bmi <- paste0(c("45142", "45809", "181810", "42204"), collapse = "|")
-
 ROI_global <- readRDS("/Users/colinccm/Documents/GitHub/Peres/IF_case_ctrl_AACES_NCOCS/ROI_global.rds")
 markers_ROI <- readRDS("/Users/colinccm/Documents/GitHub/Peres/IF_case_ctrl_AACES_NCOCS/markers_ROI.rds")
 
-# clinical_data <- readRDS("/Users/colinccm/Documents/GitHub/Peres/IF_AACES_NCOCS/clinical_data.rds")
+# Remove these IDs from whole data because 2 are NAs in BMI and 2 are there matched
+# remove_id_bmi <- paste0(c("45142", "45809", "181810", "42204"), collapse = "|")
 
-# # Rewove patients not matched or lost match
-# ROI_global <- left_join(ROI_global, clinical_data, by="suid") %>%
-#   filter(!image_tag %in% c("Peres_P1_150163  3D_[44113,18531].tif", 
-#                            "Peres_P1_43004 A2_[45654,5840].tif",
-#                            "Peres_P1_43773 D2_[60849,15244].tif", 
-#                          "Peres_P1_AACES 130033_[37754,17929].tif",
-#                          "Peres_P1_AACES 130033_[38351,13944].tif"
-#                            )) %>% 
-#   select(suid, pair_id, everything()) %>% 
-#   drop_na(pair_id) %>% 
-#   group_by(pair_id) %>% 
-#   mutate(have_a_match = dense_rank(interaction(suid, pair_id))) %>% 
-#   group_by(pair_id) %>% 
-#   mutate(is_paired = max(have_a_match)) %>% 
-#   filter(is_paired == 2) %>% 
-#   select(pair_id, everything(), -c(is_paired, have_a_match)) %>% 
-#   ungroup()
-# 
-# # markers_match <- readRDS("/Users/colinccm/Documents/GitHub/Peres/IF_AACES_NCOCS/markers_match.rds")
-# path <- fs::path("","Volumes","Peres_Research","Christelle Colin-Leitzinger", "IF_AACES_NCOCS", "Disparities manuscript", "Figures")
-# 
 # # Remove these IDs from peripheral ROI because 2 are NAs and 2 are there matched
 # remove_id <- paste0(c("110318", "43220", "42774", "46619"), collapse = "|")
 ```
