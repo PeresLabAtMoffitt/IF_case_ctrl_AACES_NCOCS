@@ -6,8 +6,8 @@ library(tidyverse)
 ############################################################################## II ### Cleaning clinical data----
 case_ctrl_data <- bind_rows(aaces_clinical, ncocs_clinical) %>% 
   # remove variable not for thidata
-  select(suid, everything(), -casematch) %>% 
-  mutate(suid = factor(suid)) %>% 
+  select(suid, everything(), -casematch) %>%
+  mutate(suid = factor(suid)) %>%
   mutate(casecon = case_when(
     casecon == 1                                       ~ "Case",
     casecon == 2                                       ~ "Control"
@@ -85,6 +85,12 @@ case_ctrl_data <- bind_rows(aaces_clinical, ncocs_clinical) %>%
     behavior == 2                                      ~ "Invasive",
     TRUE                                                ~ NA_character_
   )) %>% 
+  mutate(stage_cat = case_when(
+    stage == 1 |
+    stage == 2                                         ~ "Early",
+    stage == 3                                         ~ "Late",
+    TRUE                                                ~ NA_character_
+  )) %>% 
   mutate(stage = case_when(
     stage == 1                                         ~ "Localized",
     stage == 2                                         ~ "Regional",
@@ -113,6 +119,17 @@ case_ctrl_data <- bind_rows(aaces_clinical, ncocs_clinical) %>%
     histotype %in% (2:13)                              ~ "non-high-grade serous",
     TRUE                                               ~ NA_character_
   )) %>%
+  mutate(histotype_cat = case_when(
+    histotype == 1 |
+      histotype == 6                                   ~ "Type II",
+    histotype == 2 |
+    histotype == 5 |
+      histotype == 10 |
+    histotype == 3 |
+    histotype == 4                                     ~ "Type I",
+    histotype %in% (7:13)                              ~ "other epithelial", # Will not take the 10
+    TRUE                                               ~ NA_character_
+  )) %>% 
   mutate(histotype = case_when(
     histotype == 1                                     ~ "high-grade serous",
     histotype == 2                                     ~ "low-grade serous",
@@ -299,7 +316,7 @@ case_ctrl_data <- bind_rows(aaces_clinical, ncocs_clinical) %>%
       BMI_YA < 25                    ~ "20-24",
     BMI_YA >= 25                     ~ "≥25"
   )) %>% 
-  mutate(timeint_fu = timelastfu - timeint)
+  mutate(timeint_fu = round(os_time/30.417, digit=1))
 
 case_ctrl_data <- case_ctrl_data %>% 
   mutate(smokever = factor(smokever, levels = c("never", "ever"))) %>% 
@@ -344,6 +361,8 @@ case_ctrl_data <- case_ctrl_data %>%
 
 saveRDS(case_ctrl_data, file = "case_ctrl_data.rds")
 
+rm(aaces_clinical, ncocs_clinical)
+
 
 ############################################################################## III ### Join New ROIs data----
 ROI_global_2022jan <- 
@@ -359,27 +378,94 @@ ROI_global_2022jan <-
   select(image_tag, suid, annotation = total_annotation,
          total_cells = total_total_cells, everything()) %>%
   arrange(suid) %>% 
+  filter(!str_detect(suid, paste0(ROIcases_remove$Subject_IDs, collapse = "|"))) %>% 
   # mutate(suid = as.character(suid)) %>% 
   # Calculate percent of tumor cell
-  mutate(percent_tumor = round((tumor_total_cells / total_cells)*100, 2) 
-  ) %>% 
-  # Calculate percent of stromal cell
-  mutate(percent_stroma = round((stroma_total_cells / total_cells)*100, 2) 
-  ) %>% 
-  # Calculate percent of stromal cell
-  mutate(percent_total = round((total_cells / total_cells)*100, 2) 
-  ) %>% 
+  # mutate(percent_tumor = round((tumor_total_cells / total_cells)*100, 2) 
+  # ) %>% 
+  # # Calculate percent of stromal cell
+  # mutate(percent_stroma = round((stroma_total_cells / total_cells)*100, 2) 
+  # ) %>% 
+  # # Calculate percent of stromal cell
+  # mutate(percent_total = round((total_cells / total_cells)*100, 2) 
+  # ) %>% 
   mutate_at(("annotation"), ~ case_when(
     annotation == "P"                     ~ "Peripheral",
     annotation == "I"                     ~ "Intratumoral",
     annotation == "S"                     ~ "Stromal")
+  ) %>%
+  mutate(slide_type = "ROI") %>% 
+  mutate(data_version = "AACES_2")
+
+rm(ROI_stroma_2022jan, ROI_total_2022jan, ROI_tumor_2022jan)
+############################################################################## IV ### Join R00 TMA / ROIs data----
+# 2.1.Remove the TMA IDs of excluded patient from the study----
+# Should only be done for TMAs
+# Plus remove TMA with no IDs = controls images
+uid <- paste(unique(TMAcases_remove$Subject_IDs), collapse = "|")
+TMA_tumor <-
+  TMA_tumor[(!grepl(uid, TMA_tumor$suid)), ] %>% 
+  filter(!is.na(suid))
+TMA_stroma <-
+  TMA_stroma[(!grepl(uid, TMA_stroma$suid)),] %>% 
+  filter(!is.na(suid))
+TMA_total <-
+  TMA_total[(!grepl(uid, TMA_total$suid)),] %>% 
+  filter(!is.na(suid))
+
+TMA_global <- 
+  full_join(TMA_tumor, TMA_stroma %>% select(-suid),
+            by = "image_tag") %>% 
+  full_join(., TMA_total %>% select(-suid),
+            by = "image_tag") %>% 
+  # mutate(percent_tumor = round((tumor_total_cells / total_cells)*100, 2)
+  # ) %>% 
+  # mutate(percent_stroma = round((stroma_total_cells / total_cells)*100, 2)
+  # ) %>% 
+  # mutate(percent_total = round((total_cells / total_cells)*100, 2)
+  # ) %>% 
+  mutate(suid = as.character(suid)) %>% 
+  mutate(slide_type = "TMA") %>% 
+  mutate(annotation = "tma") %>% 
+  mutate(data_version = "AACES_1_NCOCS") %>% 
+  select(image_tag, suid, everything())
+
+rm(TMA_tumor, TMA_total, TMA_stroma)
+
+# 2.2.Create suid for ROIs----
+ROI_tumor$suid <- str_match(ROI_tumor$image_tag, 
+                            "(Peres_P1_AACES.|Peres_P1_AACEES.|Peres_P1_OV|Peres_P1.|)([:digit:]*)")[,3]
+ROI_stroma$suid <- str_match(ROI_stroma$image_tag, 
+                             "(Peres_P1_AACES.|Peres_P1_AACEES.|Peres_P1_OV|Peres_P1.|)([:digit:]*)")[,3]
+ROI_total$suid <- str_match(ROI_total$image_tag, 
+                            "(Peres_P1_AACES.|Peres_P1_AACEES.|Peres_P1_OV|Peres_P1.|)([:digit:]*)")[,3]
+
+# 2.3.Merging stroma and tumor for TMAs and ROIs----
+# Add % tumor cells and % stroma cells within each ROI/TMA core
+ROI_global_2021 <- 
+  full_join(ROI_tumor, ROI_stroma %>% select(-c("intratumoral_i_vs_peripheral_p_", "suid")),
+            by = "image_tag") %>% 
+  full_join(., ROI_total %>% select(-c("intratumoral_i_vs_peripheral_p_", "suid")),
+            by = "image_tag") %>% 
+  filter(!str_detect(image_tag, "Ctrl")) %>% 
+  # mutate(percent_tumor = round((tumor_total_cells / total_cells)*100, 2) # Calculate percent of tumor cell
+  # ) %>% 
+  # mutate(percent_stroma = round((stroma_total_cells / total_cells)*100, 2) # Calculate percent of stromal cell
+  # ) %>% 
+  # mutate(percent_total = round((total_cells / total_cells)*100, 2) # Calculate percent of stromal cell
+  # ) %>% 
+  mutate(annotation = case_when(
+    intratumoral_i_vs_peripheral_p_ == "p" ~ "Peripheral",
+    intratumoral_i_vs_peripheral_p_ == "i" ~ "Intratumoral")
   ) %>% 
-  mutate(slide_type = "ROI")
+  mutate(suid = as.character(suid)) %>% 
+  mutate(slide_type = "ROI")  %>% 
+  mutate(data_version = "AACES_1_NCOCS") %>% 
+  select(image_tag, suid, everything())
 
-
-############################################################################## IV ### Rename R00 ROIs data----
-ROI_global_2021R00 <- ROI_global_2021R00 %>% 
-  rename(annotation = intratumoral_i_vs_peripheral_p_,
+# Rename R00 ROIs data
+ROI_global_2021 <- ROI_global_2021 %>% 
+  rename(#annotation = intratumoral_i_vs_peripheral_p_,
          tumor_area_analyzed_mm2 = tumor_area_analyzed_mm2_,
          stroma_area_analyzed_mm2 = stroma_area_analyzed_mm2_,
          area_analyzed_mm2 = area_analyzed_mm2_) %>% 
@@ -390,14 +476,41 @@ ROI_global_2021R00 <- ROI_global_2021R00 %>%
                    starts_with("area")
                  ), ~ paste0("total_", .)) 
 
-
+rm(ROI_total, ROI_tumor, ROI_stroma)
 ############################################################################## VI ### Bind ROIs data----
-ROI_global <- bind_rows(ROI_global_2021R00, ROI_global_2022jan, .id = "version") %>% 
-  `colnames<-`(str_remove_all(colnames(.), "_positive_cells|_cells|_opal_..._positive_cells")) %>%
-  mutate(version = case_when(
-    version == 1        ~ "K99/R00",
-    version == 2        ~ "AACES2"
-  ))
+allmarkers_AACES_NCOCS_global <- bind_rows(ROI_global_2021, TMA_global, ROI_global_2022jan) %>% 
+  `colnames<-`(str_remove_all(colnames(.), "_positive_cells|_cells|_opal_..._positive_cells")) %>% 
+  select(image_tag, suid, annotation, slide_type, everything())
+
+saveRDS(allmarkers_AACES_NCOCS_global, file = "allmarkers_AACES_NCOCS_global.rds")
+
+complete_AACES_NCOCS_global <- left_join(allmarkers_AACES_NCOCS_global,
+                                    case_ctrl_data,
+                                    by= "suid") %>% 
+  select(image_tag, suid, annotation, slide_type, site, everything())
+
+complete_AACES_NCOCS_global %>% 
+  distinct(suid, .keep_all = TRUE) %>% 
+  select(refage, race, histotype_cat, stage_cat, vitalstatus, timeint_fu, 
+         site) %>% 
+  tbl_summary(by = site)
+
+complete_AACES_NCOCS_global %>% 
+  select(refage,
+         site, slide_type) %>% 
+  tbl_strata(
+    strata = site,
+    .tbl_fun =
+      ~ .x %>%
+      tbl_summary(by = slide_type, missing = "no") %>%
+      add_n(),
+    .header = "**{strata}**, N = {n}"
+  )
+
+
+saveRDS(complete_AACES_NCOCS_global, file = "complete_AACES_NCOCS_global.rds")
+
+ROI_global <- complete_AACES_NCOCS_global %>% filter(slide_type == "ROI")
 
 
 ############################################################################## VII ### Create cat with immune cells----
