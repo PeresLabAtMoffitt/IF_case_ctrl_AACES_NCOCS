@@ -2,12 +2,20 @@
 
 library(tidyverse)
 
+# Load data
+# Run "01.Load data AACES2" for AACES batch2 data
+# Run drake for AACES batch1 and NCOCS data
 
 ############################################################################## II ### Cleaning clinical data----
+cases_match <- cases_match %>% mutate(suid = as.character(suid))
+
 case_ctrl_data <- bind_rows(aaces_clinical, ncocs_clinical) %>% 
-  # remove variable not for thidata
+  # remove variable not for this data
   select(suid, everything(), -casematch) %>%
   mutate(suid = factor(suid)) %>%
+  # Add matched paired id AA-White
+  full_join(cases_match, .,
+            by= "suid") %>% 
   mutate(casecon = case_when(
     casecon == 1                                       ~ "Case",
     casecon == 2                                       ~ "Control"
@@ -22,6 +30,9 @@ case_ctrl_data <- bind_rows(aaces_clinical, ncocs_clinical) %>%
     vitalstatus == "Deceased"                          ~ 1,
     TRUE                                               ~ NA_real_
   )) %>% 
+  # Calculate follow up time as time from interview to follow up
+  mutate(os_time = timelastfu - timeint) %>% 
+  mutate(timeint_fu = round(os_time/30.417, digit=1)) %>% 
   mutate(cancersite = case_when(
     cancersite == 1                                    ~ "Ovarian",
     cancersite == 2                                    ~ "Tubal",
@@ -50,14 +61,6 @@ case_ctrl_data <- bind_rows(aaces_clinical, ncocs_clinical) %>%
               . %in% c("888","998", "999")             ~ NA_real_,
               TRUE                                     ~ as.numeric(.)
             )) %>% 
-  mutate(BMI_classification = case_when(
-    BMI_recent < 18.5	~ "underweight",
-    BMI_recent >=18.5 & BMI_recent <25 ~ "normal",
-    BMI_recent >=25.0 & BMI_recent <30 ~ "overweight",
-    BMI_recent >=30.0 & BMI_recent <35 ~ "obesity I",
-    BMI_recent >=35.0 & BMI_recent <40 ~ "obesity II",
-    BMI_recent >= 40.0 ~ "obesity III"
-  )) %>% 
   mutate_at(c("menopause_age"), 
             ~ case_when(
               . %in% c("777")                          ~ NA_real_,
@@ -289,9 +292,9 @@ case_ctrl_data <- bind_rows(aaces_clinical, ncocs_clinical) %>%
     mdvisitrsn == 4                                     ~ "No problem was found",
     TRUE                                                ~ NA_character_
   )) %>% 
-  mutate(diab = factor(diab, levels = c("no", "yes"))) %>% 
-  # Calculate follow up time as time from interview to follow up
-  mutate(os_time = timelastfu - timeint) %>% 
+  mutate(diab = factor(diab, levels = c("no", "yes")))
+
+case_ctrl_data <- case_ctrl_data %>% 
   mutate(refage_cat = case_when(
     refage < 50                      ~ "<50",
     refage >= 50 &
@@ -301,6 +304,14 @@ case_ctrl_data <- bind_rows(aaces_clinical, ncocs_clinical) %>%
     refage >= 70 &
       refage < 80                    ~ "70-79",
     refage >= 80                     ~ "≥80"
+  )) %>% 
+  mutate(BMI_classification = case_when(
+    BMI_recent < 18.5	~ "underweight",
+    BMI_recent >=18.5 & BMI_recent <25 ~ "normal",
+    BMI_recent >=25.0 & BMI_recent <30 ~ "overweight",
+    BMI_recent >=30.0 & BMI_recent <35 ~ "obesity I",
+    BMI_recent >=35.0 & BMI_recent <40 ~ "obesity II",
+    BMI_recent >= 40.0 ~ "obesity III"
   )) %>% 
   mutate(BMI_recent_grp = case_when(
     BMI_recent < 25                  ~ "<25",
@@ -315,10 +326,7 @@ case_ctrl_data <- bind_rows(aaces_clinical, ncocs_clinical) %>%
     BMI_YA >= 20 &
       BMI_YA < 25                    ~ "20-24",
     BMI_YA >= 25                     ~ "≥25"
-  )) %>% 
-  mutate(timeint_fu = round(os_time/30.417, digit=1))
-
-case_ctrl_data <- case_ctrl_data %>% 
+  ))%>% 
   mutate(smokever = factor(smokever, levels = c("never", "ever"))) %>% 
   mutate(smokcurrent = factor(smokcurrent, levels = c("never", "former", "current"))) %>% 
   mutate(packyrs_cat = case_when(
@@ -395,7 +403,7 @@ ROI_global_2022jan <-
     annotation == "S"                     ~ "Stromal")
   ) %>%
   mutate(slide_type = "ROI") %>% 
-  mutate(data_version = "AACES_2")
+  mutate(data_version = "AACES_v2")
 
 rm(ROI_stroma_2022jan, ROI_total_2022jan, ROI_tumor_2022jan)
 ############################################################################## IV ### Join R00 TMA / ROIs data----
@@ -427,7 +435,7 @@ TMA_global <-
   mutate(suid = as.character(suid)) %>% 
   mutate(slide_type = "TMA") %>% 
   mutate(annotation = "tma") %>% 
-  mutate(data_version = "AACES_1_NCOCS") %>% 
+  mutate(data_version = "AACES_v1_NCOCS") %>% 
   select(image_tag, suid, everything())
 
 rm(TMA_tumor, TMA_total, TMA_stroma)
@@ -460,7 +468,7 @@ ROI_global_2021 <-
   ) %>% 
   mutate(suid = as.character(suid)) %>% 
   mutate(slide_type = "ROI")  %>% 
-  mutate(data_version = "AACES_1_NCOCS") %>% 
+  mutate(data_version = "AACES_v1_NCOCS") %>% 
   select(image_tag, suid, everything())
 
 # Rename R00 ROIs data
@@ -487,13 +495,26 @@ saveRDS(allmarkers_AACES_NCOCS_global, file = "allmarkers_AACES_NCOCS_global.rds
 complete_AACES_NCOCS_global <- left_join(allmarkers_AACES_NCOCS_global,
                                     case_ctrl_data,
                                     by= "suid") %>% 
-  select(image_tag, suid, annotation, slide_type, site, everything())
+  select(image_tag, suid, annotation, slide_type, site, data_version, everything())
 
 complete_AACES_NCOCS_global %>% 
   distinct(suid, .keep_all = TRUE) %>% 
   select(refage, race, histotype_cat, stage_cat, vitalstatus, timeint_fu, 
          site) %>% 
   tbl_summary(by = site)
+
+complete_AACES_NCOCS_global %>% 
+  distinct(suid, slide_type, .keep_all = TRUE) %>% 
+  select(refage, race, histotype_cat, stage_cat, vitalstatus, timeint_fu, 
+         site, slide_type) %>% 
+  tbl_strata(
+    strata = site,
+    .tbl_fun =
+      ~ .x %>%
+      tbl_summary(by = slide_type, missing = "no") %>%
+      add_n(),
+    .header = "**{strata}**, N = {n}"
+  )
 
 complete_AACES_NCOCS_global %>% 
   select(refage,
@@ -508,7 +529,7 @@ complete_AACES_NCOCS_global %>%
   )
 
 
-saveRDS(complete_AACES_NCOCS_global, file = "complete_AACES_NCOCS_global.rds")
+saveRDS(complete_AACES_NCOCS_global, file = "complete_AACES_NCOCS_batch1_2_05052022.rds")
 
 ROI_global <- complete_AACES_NCOCS_global %>% filter(slide_type == "ROI")
 
