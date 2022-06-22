@@ -42,7 +42,12 @@ ROI_total_2022jan <-
     ), sheet = "AACES MCC18207 ROI Counts",
     .name_repair = fct_name_repair) %>% 
   janitor::clean_names() %>% 
-  `colnames<-`(c(paste0("total_", colnames(.))))
+  rename_at(vars(starts_with("fox") | 
+                   starts_with("cd") |
+                   starts_with("percent_fox") | 
+                   starts_with("percent_cd") |
+                   starts_with("area")
+  ), ~ paste0("total_", .)) 
 
 #-----------------------------------------------------------------------------------------------------------------
 # ROI_global_2021R00 <- readRDS("/Users/colinccm/Documents/GitHub/Peres/IF_case_ctrl_AACES_NCOCS/ROI_global_2021R00.rds")

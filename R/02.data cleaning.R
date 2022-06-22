@@ -377,14 +377,13 @@ ROI_global_2022jan <-
   full_join(ROI_tumor_2022jan, ROI_stroma_2022jan,
             by = "image_tag") %>% 
   full_join(., ROI_total_2022jan,
-            by = c("image_tag" = "total_image_tag")) %>% 
+            by = "image_tag") %>% 
   mutate(image_tag = str_replace(image_tag, "16-", "16"),
          suid = str_match(image_tag,
                           "(L.Peres_P1_OV|L.Peres_P1_)([:digit:]*)")[,3],
          .before = 1) %>%
   # `colnames<-`(str_remove(colnames(.), "positive_")) %>% 
-  select(image_tag, suid, annotation = total_annotation,
-         total_cells = total_total_cells, everything()) %>%
+  select(image_tag, suid, annotation, everything()) %>%
   arrange(suid) %>% 
   filter(!str_detect(suid, paste0(ROIcases_remove$Subject_IDs, collapse = "|"))) %>% 
   # mutate(suid = as.character(suid)) %>% 
@@ -420,13 +419,18 @@ TMA_stroma <-
 TMA_total <-
   TMA_total[(!grepl(uid, TMA_total$suid)),] %>% 
   filter(!is.na(suid)) %>% 
-  `colnames<-`(c(paste0("total_", colnames(.))))
+  rename_at(vars(starts_with("fox") | 
+                   starts_with("cd") |
+                   starts_with("percent_fox") | 
+                   starts_with("percent_cd") |
+                   starts_with("area")
+  ), ~ paste0("total_", .)) 
 
 TMA_global <- 
   full_join(TMA_tumor, TMA_stroma %>% select(-suid),
             by = "image_tag") %>% 
-  full_join(., TMA_total %>% select(-total_suid),
-            by = c("image_tag" = "total_image_tag")) %>% 
+  full_join(., TMA_total %>% select(-suid),
+            by = "image_tag") %>% 
   # mutate(percent_tumor = round((tumor_total_cells / total_cells)*100, 2)
   # ) %>% 
   # mutate(percent_stroma = round((stroma_total_cells / total_cells)*100, 2)
@@ -437,7 +441,11 @@ TMA_global <-
   mutate(slide_type = "TMA") %>% 
   mutate(annotation = "tma") %>% 
   mutate(data_version = "AACES_v1_NCOCS") %>% 
-  select(image_tag, suid, everything())
+  select(image_tag, suid, everything(),
+         tumor_area_analyzed_mm2 = tumor_area_analyzed_mm2_,
+         stroma_area_analyzed_mm2 = stroma_area_analyzed_mm2_,
+         total_area_analyzed_mm2 = total_area_analyzed_mm2_)
+
 
 rm(TMA_tumor, TMA_total, TMA_stroma)
 
@@ -463,7 +471,7 @@ ROI_global_2021 <-
   # ) %>% 
   # mutate(percent_total = round((total_cells / total_cells)*100, 2) # Calculate percent of stromal cell
   # ) %>% 
-  mutate(annotation = case_when(
+  mutate(intratumoral_i_vs_peripheral_p_ = case_when(
     intratumoral_i_vs_peripheral_p_ == "p" ~ "Peripheral",
     intratumoral_i_vs_peripheral_p_ == "i" ~ "Intratumoral")
   ) %>% 
@@ -474,7 +482,7 @@ ROI_global_2021 <-
 
 # Rename R00 ROIs data
 ROI_global_2021 <- ROI_global_2021 %>% 
-  rename(#annotation = intratumoral_i_vs_peripheral_p_,
+  rename(annotation = intratumoral_i_vs_peripheral_p_,
          tumor_area_analyzed_mm2 = tumor_area_analyzed_mm2_,
          stroma_area_analyzed_mm2 = stroma_area_analyzed_mm2_,
          area_analyzed_mm2 = area_analyzed_mm2_) %>% 
