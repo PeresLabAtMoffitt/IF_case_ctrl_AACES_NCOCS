@@ -419,13 +419,14 @@ TMA_stroma <-
   filter(!is.na(suid))
 TMA_total <-
   TMA_total[(!grepl(uid, TMA_total$suid)),] %>% 
-  filter(!is.na(suid))
+  filter(!is.na(suid)) %>% 
+  `colnames<-`(c(paste0("total_", colnames(.))))
 
 TMA_global <- 
   full_join(TMA_tumor, TMA_stroma %>% select(-suid),
             by = "image_tag") %>% 
-  full_join(., TMA_total %>% select(-suid),
-            by = "image_tag") %>% 
+  full_join(., TMA_total %>% select(-total_suid),
+            by = c("image_tag" = "total_image_tag")) %>% 
   # mutate(percent_tumor = round((tumor_total_cells / total_cells)*100, 2)
   # ) %>% 
   # mutate(percent_stroma = round((stroma_total_cells / total_cells)*100, 2)
