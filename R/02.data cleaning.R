@@ -382,20 +382,9 @@ ROI_global_2022jan <-
          suid = str_match(image_tag,
                           "(L.Peres_P1_OV|L.Peres_P1_)([:digit:]*)")[,3],
          .before = 1) %>%
-  # `colnames<-`(str_remove(colnames(.), "positive_")) %>% 
   select(image_tag, suid, annotation, everything()) %>%
   arrange(suid) %>% 
   filter(!str_detect(suid, paste0(ROIcases_remove$Subject_IDs, collapse = "|"))) %>% 
-  # mutate(suid = as.character(suid)) %>% 
-  # Calculate percent of tumor cell
-  # mutate(percent_tumor = round((tumor_total_cells / total_cells)*100, 2) 
-  # ) %>% 
-  # # Calculate percent of stromal cell
-  # mutate(percent_stroma = round((stroma_total_cells / total_cells)*100, 2) 
-  # ) %>% 
-  # # Calculate percent of stromal cell
-  # mutate(percent_total = round((total_cells / total_cells)*100, 2) 
-  # ) %>% 
   mutate_at(("annotation"), ~ case_when(
     annotation == "P"                     ~ "Peripheral",
     annotation == "I"                     ~ "Intratumoral",
@@ -406,12 +395,11 @@ ROI_global_2022jan <-
 
 rm(ROI_stroma_2022jan, ROI_total_2022jan, ROI_tumor_2022jan)
 ############################################################################## IV ### Join R00 TMA / ROIs data----
-# 2.1.Remove the TMA IDs of excluded patient from the study----
-# Should only be done for TMAs
-# Plus remove TMA with no IDs = controls images
+# 3.1.Remove the TMA IDs of excluded patient from the study
 uid <- paste(unique(TMAcases_remove$Subject_IDs), collapse = "|")
 TMA_tumor <-
   TMA_tumor[(!grepl(uid, TMA_tumor$suid)), ] %>% 
+  # Plus remove TMA with no IDs = controls images
   filter(!is.na(suid))
 TMA_stroma <-
   TMA_stroma[(!grepl(uid, TMA_stroma$suid)),] %>% 
@@ -431,12 +419,6 @@ TMA_global <-
             by = "image_tag") %>% 
   full_join(., TMA_total %>% select(-suid),
             by = "image_tag") %>% 
-  # mutate(percent_tumor = round((tumor_total_cells / total_cells)*100, 2)
-  # ) %>% 
-  # mutate(percent_stroma = round((stroma_total_cells / total_cells)*100, 2)
-  # ) %>% 
-  # mutate(percent_total = round((total_cells / total_cells)*100, 2)
-  # ) %>% 
   mutate(suid = as.character(suid)) %>% 
   mutate(slide_type = "TMA") %>% 
   mutate(annotation = "tma") %>% 
@@ -449,7 +431,7 @@ TMA_global <-
 
 rm(TMA_tumor, TMA_total, TMA_stroma)
 
-# 2.2.Create suid for ROIs----
+# 3.2.Create suid for ROIs----
 ROI_tumor$suid <- str_match(ROI_tumor$image_tag, 
                             "(Peres_P1_AACES.|Peres_P1_AACEES.|Peres_P1_OV|Peres_P1.|)([:digit:]*)")[,3]
 ROI_stroma$suid <- str_match(ROI_stroma$image_tag, 
@@ -457,20 +439,13 @@ ROI_stroma$suid <- str_match(ROI_stroma$image_tag,
 ROI_total$suid <- str_match(ROI_total$image_tag, 
                             "(Peres_P1_AACES.|Peres_P1_AACEES.|Peres_P1_OV|Peres_P1.|)([:digit:]*)")[,3]
 
-# 2.3.Merging stroma and tumor for TMAs and ROIs----
-# Add % tumor cells and % stroma cells within each ROI/TMA core
+# 3.3.Merging stroma and tumor for TMAs and ROIs
 ROI_global_2021 <- 
   full_join(ROI_tumor, ROI_stroma %>% select(-c("intratumoral_i_vs_peripheral_p_", "suid")),
             by = "image_tag") %>% 
   full_join(., ROI_total %>% select(-c("intratumoral_i_vs_peripheral_p_", "suid")),
             by = "image_tag") %>% 
   filter(!str_detect(image_tag, "Ctrl")) %>% 
-  # mutate(percent_tumor = round((tumor_total_cells / total_cells)*100, 2) # Calculate percent of tumor cell
-  # ) %>% 
-  # mutate(percent_stroma = round((stroma_total_cells / total_cells)*100, 2) # Calculate percent of stromal cell
-  # ) %>% 
-  # mutate(percent_total = round((total_cells / total_cells)*100, 2) # Calculate percent of stromal cell
-  # ) %>% 
   mutate(intratumoral_i_vs_peripheral_p_ = case_when(
     intratumoral_i_vs_peripheral_p_ == "p" ~ "Peripheral",
     intratumoral_i_vs_peripheral_p_ == "i" ~ "Intratumoral")
@@ -540,234 +515,7 @@ complete_AACES_NCOCS_global %>%
 
 saveRDS(complete_AACES_NCOCS_global, file = "complete_AACES_NCOCS_batch1_2_05052022.rds")
 
-ROI_global <- complete_AACES_NCOCS_global %>% filter(slide_type == "ROI")
-
-
-############################################################################## VII ### Create cat with immune cells----
-# Create average by patients by annotation
-markers_full <- ROI_global %>% 
-  select(-image_tag) %>% 
-  group_by(suid, version, annotation) %>% 
-  mutate(across(where(is.numeric), .fns = ~ mean(.))) %>% 
-  ungroup() %>% 
-  distinct()
-
-# Create wide format to separate each markers
-markers_ROI <-
-  markers_full %>% 
-  mutate_at(("annotation"), ~ case_when(
-    annotation == "Peripheral"            ~ "p",
-    annotation == "Intratumoral"          ~ "i",
-    annotation == "Stromal"               ~ "s"
-  )) %>% 
-  pivot_wider(names_from = annotation,
-              values_from = -c(suid, annotation, version),
-              names_glue = "{.value}_{annotation}"
-  )
-
-#  Create low/high cat
-# for (i in colnames(markers_ROI %>% 
-#                    select(c(contains("_percent_cd3"), 
-#                             # starts_with("percent_cd8"), 
-#                             contains("_percent_cd11b"))))) {
-#   
-#   cell_type <-
-#     str_match(i, "percent_(.*?)(_p|_i|_s)")[, 2]
-#   compartment <-
-#     str_match(i, "^(.*?)_")[, 2]
-#   region <-
-#     str_match(i, "percent_(.*?)(_p|_i|_s)")[, 3]
-#   name <- paste0(cell_type, "_", compartment, region)
-#   
-#   # markers_ROI <- markers_ROI %>% 
-#   #   mutate(name =  case_when(
-#   #     i <= 1      ~ "low",
-#   #     i > 1       ~ "high"
-#   #   ))
-# 
-#   markers_ROI[[paste0(cell_type, "_", compartment, region)]] <-  case_when(
-#     i > 1       ~ "high",
-#     i <= 1      ~ "low"
-#   )
-# }
-
-markers_ROI <- markers_ROI %>% 
-  mutate(cd3_tumor_i = case_when(
-    tumor_percent_cd3_i <= 1      ~ "low",
-    tumor_percent_cd3_i > 1       ~ "high"
-  ), cd3_tumor_i = factor(cd3_tumor_i, levels = c("low","high"))) %>%
-  mutate(cd3plus_cd8plus_tumor_i = case_when(
-    tumor_percent_cd3plus_cd8plus_i <= 1      ~ "low",
-    tumor_percent_cd3plus_cd8plus_i > 1       ~ "high"
-  ), cd3plus_cd8plus_tumor_i = factor(cd3plus_cd8plus_tumor_i, levels = c("low","high"))) %>%
-  mutate(cd3plus_foxp3plus_tumor_i = case_when(
-    tumor_percent_cd3plus_foxp3plus_i <= 1      ~ "low",
-    tumor_percent_cd3plus_foxp3plus_i > 1       ~ "high"
-  ), cd3plus_foxp3plus_tumor_i = factor(cd3plus_foxp3plus_tumor_i, levels = c("low","high"))) %>%
-  mutate(cd11b_tumor_i = case_when(
-    tumor_percent_cd11b_i <= 1      ~ "low",
-    tumor_percent_cd11b_i > 1       ~ "high"
-  ), cd11b_tumor_i = factor(cd11b_tumor_i, levels = c("low","high"))) %>%
-  mutate(cd11bplus_cd15plus_tumor_i = case_when(
-    tumor_percent_cd11bplus_cd15plus_i == 0      ~ "Absence",
-    tumor_percent_cd11bplus_cd15plus_i > 0       ~ "Presence"
-  ), cd11bplus_cd15plus_tumor_i = factor(cd11bplus_cd15plus_tumor_i, levels = c("Absence","Presence"))) %>% 
-  mutate(cd3_stroma_i = case_when(
-    stroma_percent_cd3_i <= 1      ~ "low",
-    stroma_percent_cd3_i > 1       ~ "high"
-  ), cd3_stroma_i = factor(cd3_stroma_i, levels = c("low","high"))) %>%
-  mutate(cd3plus_cd8plus_stroma_i = case_when(
-    stroma_percent_cd3plus_cd8plus_i <= 1      ~ "low",
-    stroma_percent_cd3plus_cd8plus_i > 1       ~ "high"
-  ), cd3plus_cd8plus_stroma_i = factor(cd3plus_cd8plus_stroma_i, levels = c("low","high"))) %>%
-  mutate(cd3plus_foxp3plus_stroma_i = case_when(
-    stroma_percent_cd3plus_foxp3plus_i <= 1      ~ "low",
-    stroma_percent_cd3plus_foxp3plus_i > 1       ~ "high"
-  ), cd3plus_foxp3plus_stroma_i = factor(cd3plus_foxp3plus_stroma_i, levels = c("low","high"))) %>%
-  mutate(cd11b_stroma_i = case_when(
-    stroma_percent_cd11b_i <= 1      ~ "low",
-    stroma_percent_cd11b_i > 1       ~ "high"
-  ), cd11b_stroma_i = factor(cd11b_stroma_i, levels = c("low","high"))) %>%
-  mutate(cd11bplus_cd15plus_stroma_i = case_when(
-    stroma_percent_cd11bplus_cd15plus_i == 0      ~ "Absence",
-    stroma_percent_cd11bplus_cd15plus_i > 0       ~ "Presence"
-  ), cd11bplus_cd15plus_stroma_i = factor(cd11bplus_cd15plus_stroma_i, levels = c("Absence","Presence"))) %>% 
-  mutate(cd3_total_i = case_when(
-    total_percent_cd3_i <= 1      ~ "low",
-    total_percent_cd3_i > 1       ~ "high"
-  ), cd3_total_i = factor(cd3_total_i, levels = c("low","high"))) %>%
-  mutate(cd3plus_cd8plus_total_i = case_when(
-    total_percent_cd3plus_cd8plus_i <= 1      ~ "low",
-    total_percent_cd3plus_cd8plus_i > 1       ~ "high"
-  ), cd3plus_cd8plus_total_i = factor(cd3plus_cd8plus_total_i, levels = c("low","high"))) %>%
-  mutate(cd3plus_foxp3plus_total_i = case_when(
-    total_percent_cd3plus_foxp3plus_i <= 1      ~ "low",
-    total_percent_cd3plus_foxp3plus_i > 1       ~ "high"
-  ), cd3plus_foxp3plus_total_i = factor(cd3plus_foxp3plus_total_i, levels = c("low","high"))) %>%
-  mutate(cd11b_total_i = case_when(
-    total_percent_cd11b_i <= 1      ~ "low",
-    total_percent_cd11b_i > 1       ~ "high"
-  ), cd11b_total_i = factor(cd11b_total_i, levels = c("low","high"))) %>%
-  mutate(cd11bplus_cd15plus_total_i = case_when(
-    total_percent_cd11bplus_cd15plus_i == 0      ~ "Absence",
-    total_percent_cd11bplus_cd15plus_i > 0       ~ "Presence"
-  ), cd11bplus_cd15plus_total_i = factor(cd11bplus_cd15plus_total_i, levels = c("Absence","Presence"))) %>% 
-  
-  mutate(cd3_tumor_p = case_when(
-    tumor_percent_cd3_p <= 1      ~ "low",
-    tumor_percent_cd3_p > 1       ~ "high"
-  ), cd3_tumor_p = factor(cd3_tumor_p, levels = c("low","high"))) %>%
-  mutate(cd3plus_cd8plus_tumor_p = case_when(
-    tumor_percent_cd3plus_cd8plus_p <= 1      ~ "low",
-    tumor_percent_cd3plus_cd8plus_p > 1       ~ "high"
-  ), cd3plus_cd8plus_tumor_p = factor(cd3plus_cd8plus_tumor_p, levels = c("low","high"))) %>%
-  mutate(cd3plus_foxp3plus_tumor_p = case_when(
-    tumor_percent_cd3plus_foxp3plus_p <= 1      ~ "low",
-    tumor_percent_cd3plus_foxp3plus_p > 1       ~ "high"
-  ), cd3plus_foxp3plus_tumor_p = factor(cd3plus_foxp3plus_tumor_p, levels = c("low","high"))) %>%
-  mutate(cd11b_tumor_p = case_when(
-    tumor_percent_cd11b_p <= 1      ~ "low",
-    tumor_percent_cd11b_p > 1       ~ "high"
-  ), cd11b_tumor_p = factor(cd11b_tumor_p, levels = c("low","high"))) %>%
-  mutate(cd11bplus_cd15plus_tumor_p = case_when(
-    tumor_percent_cd11bplus_cd15plus_p == 0      ~ "Absence",
-    tumor_percent_cd11bplus_cd15plus_p > 0       ~ "Presence"
-  ), cd11bplus_cd15plus_tumor_p = factor(cd11bplus_cd15plus_tumor_p, levels = c("Absence","Presence"))) %>% 
-  mutate(cd3_stroma_p = case_when(
-    stroma_percent_cd3_p <= 1      ~ "low",
-    stroma_percent_cd3_p > 1       ~ "high"
-  ), cd3_stroma_p = factor(cd3_stroma_p, levels = c("low","high"))) %>%
-  mutate(cd3plus_cd8plus_stroma_p = case_when(
-    stroma_percent_cd3plus_cd8plus_p <= 1      ~ "low",
-    stroma_percent_cd3plus_cd8plus_p > 1       ~ "high"
-  ), cd3plus_cd8plus_stroma_p = factor(cd3plus_cd8plus_stroma_p, levels = c("low","high"))) %>%
-  mutate(cd3plus_foxp3plus_stroma_p = case_when(
-    stroma_percent_cd3plus_foxp3plus_p <= 1      ~ "low",
-    stroma_percent_cd3plus_foxp3plus_p > 1       ~ "high"
-  ), cd3plus_foxp3plus_stroma_p = factor(cd3plus_foxp3plus_stroma_p, levels = c("low","high"))) %>%
-  mutate(cd11b_stroma_p = case_when(
-    stroma_percent_cd11b_p <= 1      ~ "low",
-    stroma_percent_cd11b_p > 1       ~ "high"
-  ), cd11b_stroma_p = factor(cd11b_stroma_p, levels = c("low","high"))) %>%
-  mutate(cd11bplus_cd15plus_stroma_p = case_when(
-    stroma_percent_cd11bplus_cd15plus_p == 0      ~ "Absence",
-    stroma_percent_cd11bplus_cd15plus_p > 0       ~ "Presence"
-  ), cd11bplus_cd15plus_stroma_p = factor(cd11bplus_cd15plus_stroma_p, levels = c("Absence","Presence"))) %>% 
-  mutate(cd3_total_p = case_when(
-    total_percent_cd3_p <= 1      ~ "low",
-    total_percent_cd3_p > 1       ~ "high"
-  ), cd3_total_p = factor(cd3_total_p, levels = c("low","high"))) %>%
-  mutate(cd3plus_cd8plus_total_p = case_when(
-    total_percent_cd3plus_cd8plus_p <= 1      ~ "low",
-    total_percent_cd3plus_cd8plus_p > 1       ~ "high"
-  ), cd3plus_cd8plus_total_p = factor(cd3plus_cd8plus_total_p, levels = c("low","high"))) %>%
-  mutate(cd3plus_foxp3plus_total_p = case_when(
-    total_percent_cd3plus_foxp3plus_p <= 1      ~ "low",
-    total_percent_cd3plus_foxp3plus_p > 1       ~ "high"
-  ), cd3plus_foxp3plus_total_p = factor(cd3plus_foxp3plus_total_p, levels = c("low","high"))) %>%
-  mutate(cd11b_total_p = case_when(
-    total_percent_cd11b_p <= 1      ~ "low",
-    total_percent_cd11b_p > 1       ~ "high"
-  ), cd11b_total_p = factor(cd11b_total_p, levels = c("low","high"))) %>%
-  mutate(cd11bplus_cd15plus_total_p = case_when(
-    total_percent_cd11bplus_cd15plus_p == 0      ~ "Absence",
-    total_percent_cd11bplus_cd15plus_p > 0       ~ "Presence"
-  ), cd11bplus_cd15plus_total_p = factor(cd11bplus_cd15plus_total_p, levels = c("Absence","Presence")))
-
-
-
-
-
-
-
-
-
-
-
-
-markers_ROI$cd3plus_foxp3plus_total_p
-colnames(markers_ROI)
-
-# markers_ROI <- markers_ROI %>% 
-#   mutate(across(ends_with("_grp"), ~ factor(.)))
-
-
-######################################################################################## V ### Create immunoscore and cluster----
-markers_ROI <- markers_ROI %>% 
-  mutate(percentile_score_CD3_i = ntile(total_percent_cd3_i, 100) ) %>% 
-  mutate(percentile_score_CD3_p = ntile(total_percent_cd3_p, 100) ) %>% 
-  mutate(percentile_score_CD8_i = ntile(total_percent_cd8_i, 100) ) %>% 
-  mutate(percentile_score_CD8_p = ntile(total_percent_cd8_p, 100) ) %>%
-  mutate(percentile_score_mean = 
-           rowMeans(select(.,`percentile_score_CD3_i`:`percentile_score_CD8_p`), 
-                    na.rm = TRUE)
-  ) %>%
-  mutate(immunoscore_patients = case_when(
-    percentile_score_mean <= 10        ~ 0,
-    percentile_score_mean <= 25        ~ 1,
-    percentile_score_mean <= 70        ~ 2,
-    percentile_score_mean <= 95        ~ 3,
-    percentile_score_mean > 95         ~ 4 
-  )) %>% 
-  mutate(immunoscore_patients = factor(immunoscore_patients)) %>% 
-  mutate(immunoscore_2018lancet_patients = case_when(
-    percentile_score_mean <= 25        ~ "Low",
-    percentile_score_mean <= 70        ~ "Intermediate",
-    percentile_score_mean > 70         ~ "High"
-  )) %>% 
-  mutate(immunoscore_2018lancet_patients = 
-           factor(immunoscore_2018lancet_patients, 
-                  levels = c("Low", "Intermediate", "High"))) 
-
-
-######################################################################################## VI ### Join data----
-markers_ROI <- right_join(case_ctrl_data, markers_ROI, ############# WRONG suid for NCOCS
-                     by = "suid")
-ROI_global <- right_join(case_ctrl_data, ROI_global,
-                        by = "suid")
-
-saveRDS(ROI_global, file = "ROI_global.rds")
-saveRDS(markers_ROI, file = "markers_ROI.rds")
-
 
 # End cleaning
+# YOU ARE DONE CREATING THE MAIN DATA USED FOR ALL AACES BASED PROJECTS!
+
