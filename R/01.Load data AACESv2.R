@@ -49,8 +49,5 @@ ROI_total_2022jan <-
                    starts_with("area")
   ), ~ paste0("total_", .)) 
 
-#-----------------------------------------------------------------------------------------------------------------
-# ROI_global_2021R00 <- readRDS("/Users/colinccm/Documents/GitHub/Peres/IF_case_ctrl_AACES_NCOCS/ROI_global_2021R00.rds")
-
 
 # End loading
