@@ -384,6 +384,7 @@ ROI_global_2022jan <-
          .before = 1) %>%
   select(image_tag, suid, annotation, everything()) %>%
   arrange(suid) %>% 
+  # Remove patients who were excluded from the study
   filter(!str_detect(suid, paste0(ROIcases_remove$Subject_IDs, collapse = "|"))) %>% 
   mutate_at(("annotation"), ~ case_when(
     annotation == "P"                     ~ "Peripheral",
