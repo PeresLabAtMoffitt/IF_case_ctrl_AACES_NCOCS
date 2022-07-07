@@ -66,7 +66,7 @@ library(riskclustr)
 ```
 
 ```{r load}
-markers_ROI <- readRDS(paste0(here::here(), "/markers_ROI.rds"))
+markers_ROI <- readRDS(paste0(here::here(), "/summarized_markers_ROI.rds"))
 case_ctrl_data <- readRDS(paste0(here::here(), "/case_ctrl_data.rds"))
 
 # Remove these IDs from whole data because 2 are NAs in BMI and 2 are there matched

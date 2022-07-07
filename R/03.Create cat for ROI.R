@@ -3,16 +3,17 @@ library(tidyverse)
 
 complete_AACES_NCOCS_global <- 
   read_rds(paste0(here::here(), 
-                  "/allmarkers_AACES_NCOCS_global.rds"))
-
+                  "/allmarkers_AACES_NCOCS_global_07072022.rds"))
 ROI_global <- complete_AACES_NCOCS_global %>% filter(slide_type == "ROI")
+
+case_ctrl_data <- readRDS(paste0(here::here(), "/case_ctrl_data.rds"))
 
 
 ############################################################################## VII ### Create cat with immune cells----
 # Create average by patients by annotation
 markers_full <- ROI_global %>% 
   select(-image_tag) %>% 
-  group_by(suid, version, annotation) %>% 
+  group_by(suid, data_version, annotation) %>% 
   mutate(across(where(is.numeric), .fns = ~ mean(.))) %>% 
   ungroup() %>% 
   distinct()
@@ -26,7 +27,7 @@ markers_ROI <-
     annotation == "Stromal"               ~ "s"
   )) %>% 
   pivot_wider(names_from = annotation,
-              values_from = -c(suid, annotation, version),
+              values_from = -c(suid, annotation, data_version),
               names_glue = "{.value}_{annotation}"
   )
 
@@ -186,8 +187,7 @@ markers_ROI <- markers_ROI %>%
 ######################################################################################## VI ### Join data----
 markers_ROI <- right_join(case_ctrl_data, markers_ROI, 
                           by = "suid")
+saveRDS(markers_ROI, file = "summarized_markers_ROI.rds")
 ROI_global <- right_join(case_ctrl_data, ROI_global,
                          by = "suid")
-
-saveRDS(ROI_global, file = "ROI_global.rds")
-saveRDS(markers_ROI, file = "markers_ROI.rds")
+saveRDS(ROI_global, file = "summarized_clin_markersROI.rds")

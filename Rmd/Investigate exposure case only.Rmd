@@ -65,8 +65,8 @@ library(gplots)
 
 
 ```{r load}
-ROI_global <- readRDS("/Users/colinccm/Documents/GitHub/Peres/IF_case_ctrl_AACES_NCOCS/ROI_global.rds")
-markers_ROI <- readRDS("/Users/colinccm/Documents/GitHub/Peres/IF_case_ctrl_AACES_NCOCS/markers_ROI.rds")
+ROI_global <- readRDS("/Users/colinccm/Documents/GitHub/Peres/IF_case_ctrl_AACES_NCOCS/summarized_clin_markersROI.rds")
+markers_ROI <- readRDS("/Users/colinccm/Documents/GitHub/Peres/IF_case_ctrl_AACES_NCOCS/summarized_markers_ROI.rds")
 
 # Remove these IDs from whole data because 2 are NAs in BMI and 2 are there matched
 # remove_id_bmi <- paste0(c("45142", "45809", "181810", "42204"), collapse = "|")

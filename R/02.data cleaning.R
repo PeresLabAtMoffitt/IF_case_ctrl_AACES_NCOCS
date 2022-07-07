@@ -384,7 +384,7 @@ ROI_global_2022jan <-
          .before = 1) %>%
   select(image_tag, suid, annotation, everything()) %>%
   arrange(suid) %>% 
-  # Remove patients who were excluded from the study
+  # Remove patients who were excluded from the study probably after path review
   filter(!str_detect(suid, paste0(ROIcases_remove$Subject_IDs, collapse = "|"))) %>% 
   mutate_at(("annotation"), ~ case_when(
     annotation == "P"                     ~ "Peripheral",
@@ -396,18 +396,15 @@ ROI_global_2022jan <-
 
 rm(ROI_stroma_2022jan, ROI_total_2022jan, ROI_tumor_2022jan)
 ############################################################################## IV ### Join R00 TMA / ROIs data----
-# 3.1.Remove the TMA IDs of excluded patient from the study
-uid <- paste(unique(TMAcases_remove$Subject_IDs), collapse = "|")
-TMA_tumor <-
-  TMA_tumor[(!grepl(uid, TMA_tumor$suid)), ] %>% 
+uid <- 
+TMA_tumor <- TMA_tumor %>% 
   # Plus remove TMA with no IDs = controls images
   filter(!is.na(suid))
-TMA_stroma <-
-  TMA_stroma[(!grepl(uid, TMA_stroma$suid)),] %>% 
+TMA_stroma <- TMA_stroma %>% 
   filter(!is.na(suid))
-TMA_total <-
-  TMA_total[(!grepl(uid, TMA_total$suid)),] %>% 
+TMA_total <- TMA_total %>% 
   filter(!is.na(suid)) %>% 
+  # add total_ suffixes
   rename_at(vars(starts_with("fox") | 
                    starts_with("cd") |
                    starts_with("percent_fox") | 
@@ -421,13 +418,19 @@ TMA_global <-
   full_join(., TMA_total %>% select(-suid),
             by = "image_tag") %>% 
   mutate(suid = as.character(suid)) %>% 
+  # Remove the TMA IDs of excluded patient from the study
+  filter(!str_detect(
+    paste(unique(TMAcases_remove$Subject_IDs), collapse = "|"), 
+    suid)) %>% 
   mutate(slide_type = "TMA") %>% 
   mutate(annotation = "tma") %>% 
   mutate(data_version = "AACES_v1_NCOCS") %>% 
   select(image_tag, suid, everything(),
          tumor_area_analyzed_mm2 = tumor_area_analyzed_mm2_,
          stroma_area_analyzed_mm2 = stroma_area_analyzed_mm2_,
-         total_area_analyzed_mm2 = total_area_analyzed_mm2_)
+         total_area_analyzed_mm2 = total_area_analyzed_mm2_,
+         -c(starts_with("tma"), starts_with("other_tissue"), 
+            starts_with("block_id")))
 
 
 rm(TMA_tumor, TMA_total, TMA_stroma)
@@ -446,7 +449,16 @@ ROI_global_2021 <-
             by = "image_tag") %>% 
   full_join(., ROI_total %>% select(-c("intratumoral_i_vs_peripheral_p_", "suid")),
             by = "image_tag") %>% 
-  filter(!str_detect(image_tag, "Ctrl")) %>% 
+  # Remove Ctrl image
+  filter(!str_detect(image_tag, "Ctrl")) %>%
+  # Remove images that were not stained properly
+  filter(!image_tag %in% c("Peres_P1_150163  3D_[44113,18531].tif", 
+                           "Peres_P1_43004 A2_[45654,5840].tif",
+                           "Peres_P1_43773 D2_[60849,15244].tif", 
+                           "Peres_P1_AACES 130033_[37754,17929].tif",
+                           "Peres_P1_AACES 130033_[38351,13944].tif"
+  )) %>% 
+  # homogenize / AACES2
   mutate(intratumoral_i_vs_peripheral_p_ = case_when(
     intratumoral_i_vs_peripheral_p_ == "p" ~ "Peripheral",
     intratumoral_i_vs_peripheral_p_ == "i" ~ "Intratumoral")
@@ -454,10 +466,7 @@ ROI_global_2021 <-
   mutate(suid = as.character(suid)) %>% 
   mutate(slide_type = "ROI")  %>% 
   mutate(data_version = "AACES_v1_NCOCS") %>% 
-  select(image_tag, suid, everything())
-
-# Rename R00 ROIs data
-ROI_global_2021 <- ROI_global_2021 %>% 
+  select(image_tag, suid, everything()) %>% 
   rename(annotation = intratumoral_i_vs_peripheral_p_,
          tumor_area_analyzed_mm2 = tumor_area_analyzed_mm2_,
          stroma_area_analyzed_mm2 = stroma_area_analyzed_mm2_,
@@ -473,9 +482,11 @@ rm(ROI_total, ROI_tumor, ROI_stroma)
 ############################################################################## VI ### Bind ROIs data----
 allmarkers_AACES_NCOCS_global <- bind_rows(ROI_global_2021, TMA_global, ROI_global_2022jan) %>% 
   `colnames<-`(str_remove_all(colnames(.), "_positive_cells|_cells|_opal_..._positive_cells")) %>% 
-  select(image_tag, suid, annotation, slide_type, everything())
+  select(data_version, image_tag, suid, annotation, slide_type, everything()) %>% 
+  rename(total_total = total)
 
-saveRDS(allmarkers_AACES_NCOCS_global, file = "allmarkers_AACES_NCOCS_global.rds")
+saveRDS(allmarkers_AACES_NCOCS_global, file = "allmarkers_AACES_NCOCS_global_07072022.rds")
+write_csv(allmarkers_AACES_NCOCS_global, "markers_AACES_NCOCS_batch1_2_07072022.csv")
 
 complete_AACES_NCOCS_global <- left_join(allmarkers_AACES_NCOCS_global,
                                     case_ctrl_data,
@@ -514,8 +525,8 @@ complete_AACES_NCOCS_global %>%
   )
 
 
-saveRDS(complete_AACES_NCOCS_global, file = "complete_AACES_NCOCS_batch1_2_05052022.rds")
-
+saveRDS(complete_AACES_NCOCS_global, file = "complete_AACES_NCOCS_batch1_2_07072022.rds")
+write_csv(complete_AACES_NCOCS_global, "complete_AACES_NCOCS_batch1_2_07072022.csv")
 
 # End cleaning
 # YOU ARE DONE CREATING THE MAIN DATA USED FOR ALL AACES BASED PROJECTS!
