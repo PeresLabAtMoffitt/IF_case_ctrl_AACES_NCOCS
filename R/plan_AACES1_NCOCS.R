@@ -23,6 +23,7 @@ plan <- drake_plan(
   #-----------------------------------------------------------------------------------------------------------------
   TMAcases_remove = case_remove_import(fs::path("","Volumes","Peres_Research")),
   ROIcases_remove = caseROI_remove_import(fs::path("","Volumes","Peres_Research")),
+  ROIimage_remove = imageROI_remove_import(fs::path("","Volumes","Peres_Research")),
   common_ROITMA_IDs = common_ROITMA_import(fs::path("","Volumes","Peres_Research")),
   #-----------------------------------------------------------------------------------------------------------------
   cases_match = match_cases_import(fs::path("","Volumes","Peres_Research")),

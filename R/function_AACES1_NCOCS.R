@@ -86,6 +86,10 @@ caseROI_remove_import <- function(path){
   read_csv(paste0(path,
                   "/Christelle Colin-Leitzinger/IF_AACES_NCOCS/data/Subject_IDs to remove from ROI.csv"))
 }
+imageROI_remove_import <- function(path){
+  read_csv(paste0(path,
+                  "/Christelle Colin-Leitzinger/IF_AACES_NCOCS/data/Remove images that were not stained properly in batch1.csv"))
+}
 #-----------------------------------------------------------------------------------------------------------------
 common_ROITMA_import <- function(path){
   read_csv(paste0(path,

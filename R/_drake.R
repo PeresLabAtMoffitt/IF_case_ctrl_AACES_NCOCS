@@ -19,6 +19,7 @@ loadd(#clinical_data, ancestry_data, tx_data,
       ROI_tumor ,ROI_stroma ,ROI_total,
       TMA_tumor ,TMA_stroma, TMA_total,
       TMAcases_remove, ROIcases_remove,
+      ROIimage_remove,
       common_ROITMA_IDs, cases_match)
 
 # Cleaning
@@ -27,6 +28,7 @@ rm(fct_name_repair, var_names, # roir_import,
    roit_import, rois_import, roi_import, 
    tmat_import, tmas_import, tma17_import, tma18_import,
    tma2t_import, tma2s_import, common_ROITMA_import, # tmar_import, 
-   case_remove_import, binding, match_cases_import,
+     case_remove_import, caseROI_remove_import, imageROI_remove_import,
+   binding, match_cases_import,
    plan, config)
 
