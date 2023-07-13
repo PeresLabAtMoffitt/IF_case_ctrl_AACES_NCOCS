@@ -1,26 +1,33 @@
 # Run only for doing the preliminary analysis on ROIs only
 library(tidyverse)
 
+
+############################################################################## I ### Load data----
 marker_AACES_NCOCS <- 
   read_rds(paste0(here::here(), 
-                  "/markers_AACES_NCOCS_batch1_2_04132023.rds"))
-ROI_global <- marker_AACES_NCOCS %>% filter(slide_type == "ROI")
-
-case_ctrl_data <- readRDS(paste0(here::here(), "/case_ctrl_data.rds"))
+                  "/markers_AACES_NCOCS_batch1_2_07132023.rds"))
+case_ctrl_data <- readRDS(paste0(here::here(), "/case_ctrl_data_07132023.rds"))
 
 
-############################################################################## VII ### Create cat with immune cells----
+############################################################################## II ### Summarize----
 # Create average by patients by annotation
-markers_full <- ROI_global %>% 
+markers_summ <- marker_AACES_NCOCS %>% 
   select(-image_tag) %>% 
   group_by(suid, data_version, annotation) %>% 
   mutate(across(where(is.numeric), .fns = ~ mean(.))) %>% 
   ungroup() %>% 
   distinct()
 
+write_rds(markers_summ, "summarized_markers_clinical_AACES_NCOCS_batch1_2_07132023.rds")
+
+
+ROI_summ <- markers_summ %>% filter(slide_type == "ROI")
+ROI_global <- marker_AACES_NCOCS %>% filter(slide_type == "ROI")
+
+
 # Create wide format to separate each markers
 markers_ROI <-
-  markers_full %>% 
+  ROI_summ %>% 
   mutate_at(("annotation"), ~ case_when(
     annotation == "Peripheral"            ~ "p",
     annotation == "Intratumoral"          ~ "i",
@@ -43,7 +50,8 @@ markers_ROI <-
 #               names_glue = "{.value}_{annotation}"
 #   )
 
-# Create cat
+
+############################################################################## III ### Create cat with immune cells----
 markers_ROI <- markers_ROI %>% 
     mutate(cd3_tumor_cat.i = case_when(
       tumor_percent_cd3_i <= 1      ~ "low",
@@ -262,7 +270,9 @@ markers_ROI <- markers_ROI %>%
 ######################################################################################## VI ### Join data----
 markers_ROI <- right_join(case_ctrl_data, markers_ROI, 
                           by = "suid")
-saveRDS(markers_ROI, file = "summarized_markers_clinical_ROI_04132023.rds")
+saveRDS(markers_ROI, file = "cat_summarized_markers_clinical_ROI_07132023.rds")
 ROI_global <- right_join(case_ctrl_data, ROI_global,
                          by = "suid")
-saveRDS(ROI_global, file = "long_format_markers_clinical_ROI_04132023.rds")
+saveRDS(ROI_global, file = "cat_long_format_markers_clinical_ROI_07132023.rds")
+
+# END create cat for ROI
