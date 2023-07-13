@@ -367,7 +367,7 @@ case_ctrl_data <- case_ctrl_data %>%
     TRUE                                        ~ "others"
   ))
 
-saveRDS(case_ctrl_data, file = "case_ctrl_data.rds")
+saveRDS(case_ctrl_data, file = "case_ctrl_data_07132023.rds")
 
 rm(aaces_clinical, ncocs_clinical, cases_match)
 
@@ -393,9 +393,9 @@ ROI_global_2022jan <-
   ) %>%
   mutate(slide_type = "ROI") %>% 
   mutate(data_version = "AACES_v2") %>% 
-  rename(tumor_area_analyzed_um2 = tumor_area_analyzed_mm2,
-         stroma_area_analyzed_um2 = stroma_area_analyzed_mm2,
-         total_area_analyzed_um2 = total_area_analyzed_mm2,
+  rename(tumor_area_analyzed_μm2 = tumor_area_analyzed_mm2,
+         stroma_area_analyzed_μm2 = stroma_area_analyzed_mm2,
+         total_area_analyzed_μm2 = total_area_analyzed_mm2,
          tumor_area_analyzed_mm2 = tumor_area_analyzed_mm2_2,
          stroma_area_analyzed_mm2 = stroma_area_analyzed_mm2_2,
          total_area_analyzed_mm2 = total_area_analyzed_mm2_2
@@ -485,15 +485,15 @@ rm(ROI_total, ROI_tumor, ROI_stroma, ROIimage_remove)
 
 
 ############################################################################## VI ### Bind ROIs data----
-allmarkers_AACES_NCOCS_global <- bind_rows(ROI_global_2021, TMA_global, ROI_global_2022jan) %>% 
+markers_AACES_NCOCS <- bind_rows(ROI_global_2021, TMA_global, ROI_global_2022jan) %>% 
   `colnames<-`(str_remove_all(colnames(.), "_positive_cells|_cells|_opal_..._positive_cells")) %>% 
   select(data_version, image_tag, suid, annotation, slide_type, everything()) %>% 
   rename(total_total = total)
 
-saveRDS(allmarkers_AACES_NCOCS_global, file = "markers_AACES_NCOCS_batch1_2_04132023.rds")
-write_csv(allmarkers_AACES_NCOCS_global, "markers_AACES_NCOCS_batch1_2_04132023.csv")
+saveRDS(markers_AACES_NCOCS, file = "markers_AACES_NCOCS_batch1_2_07132023.rds")
+write_csv(markers_AACES_NCOCS, "markers_AACES_NCOCS_batch1_2_07132023.csv")
 
-complete_AACES_NCOCS_global <- left_join(allmarkers_AACES_NCOCS_global,
+complete_AACES_NCOCS_global <- left_join(markers_AACES_NCOCS,
                                     case_ctrl_data,
                                     by= "suid") %>% 
   select(image_tag, suid, annotation, slide_type, site, data_version, everything())
@@ -530,8 +530,8 @@ complete_AACES_NCOCS_global %>%
   )
 
 
-saveRDS(complete_AACES_NCOCS_global, file = "clinical_markers_AACES_NCOCS_batch1_2_04132023.rds")
-write_csv(complete_AACES_NCOCS_global, "clinical_markers_AACES_NCOCS_batch1_2_04132023.csv")
+saveRDS(complete_AACES_NCOCS_global, file = "clinical_markers_AACES_NCOCS_batch1_2_07132023.rds")
+write_csv(complete_AACES_NCOCS_global, "clinical_markers_AACES_NCOCS_batch1_2_07132023.csv")
 
 # End cleaning
 # YOU ARE DONE CREATING THE MAIN DATA USED FOR ALL AACES BASED PROJECTS!
