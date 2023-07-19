@@ -106,6 +106,7 @@ total_data <-
              total_tma,
              by = "image_tag") %>% 
   mutate(core = str_match(image_tag, "\\[(.*)\\]")[,2]) %>% 
+  # Make core an unique id - Can have same core number on different TMA
   unite(core, c(core,tma), remove = FALSE) %>% 
   full_join(tma_map,
             .,
@@ -156,6 +157,40 @@ stroma_data <-
 write_csv(total_data, "Mapped_total_macrophage_raw_data_07192023.csv")
 write_csv(tumor_data, "Mapped_tumor_macrophage_raw_data_07192023.csv")
 write_csv(stroma_data, "Mapped_stroma_macrophage_raw_data_07192023.csv")
+
+long_data <- bind_rows(total_data %>% 
+                         mutate(compartment = "Total", .before = 3),
+                       tumor_data %>% 
+                         `colnames<-`(str_remove(colnames(.), "tumor_")) %>% 
+                         mutate(compartment = "Tumor"),
+                       stroma_data %>% 
+                         `colnames<-`(str_remove(colnames(.), "stroma_")) %>% 
+                         mutate(compartment = "Stroma")
+                       ) %>% 
+  arrange(suid)
+
+write_csv(long_data, "Not_average_Clean_mapped_macrophage_data_long_format_07192023.csv")
+
+wide_data <- 
+  full_join(total_data %>% 
+              # select(suid, tma, everything(), -compartment) %>% 
+              rename_at(vars(-c("core", "suid", "image_location", "image_tag", "tma")
+              ), ~ paste0("total_", .)),
+            tumor_data %>% 
+              # select(-compartment) %>% 
+              rename_at(vars(-c("core", "suid", "image_location", "image_tag", "tma",
+                                starts_with("tumor_"))
+              ), ~ paste0("tumor_", .)),
+            by = c("core", "suid", "image_location", "image_tag", "tma")) %>% 
+  full_join(.,
+            stroma_data %>% 
+              # select(-compartment) %>% 
+              rename_at(vars(-c("core", "suid", "image_location", "image_tag", "tma",
+                                starts_with("stroma_"))
+              ), ~ paste0("stroma_", .)),
+            by = c("core", "suid", "image_location", "image_tag", "tma"))
+
+write_csv(wide_data, "Not_average_Clean_mapped_macrophage_data_wide_format_07192023.csv")
 
 
 # Summarize
