@@ -1,0 +1,113 @@
+---
+title: "TAM_TMA survival analysis using marker presence/absence to categorize macrophage types"
+author: "Christelle Colin-Leitzinger"
+date: "`r Sys.Date()`"
+output: 
+  html_document:
+    toc: true
+    toc_float: true
+    toc_collapsed: false
+    theme: cerulean #darkly
+    highlight: pygments
+    df_print: paged
+editor_options: 
+  chunk_output_type: console
+---
+
+<style type="text/css">
+
+.figure {
+   margin-top: 25px;
+   margin-bottom: 100px;
+}
+
+table {
+    margin-top: 10px;
+    margin-bottom: 25px;
+}
+</style>
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE,
+                      warning = FALSE,
+                      message = FALSE,
+                      cache = FALSE,
+                      fig.align='center'
+                      )
+```
+
+
+```{r library, echo = FALSE}
+library(tidyverse)
+library(gtsummary)
+library(survival)
+library(survminer)
+theme_gtsummary_compact()
+theme_set(theme_classic())
+```
+
+```{r load}
+tam_data <- 
+  read_csv(paste0(here::here(),
+                  "/Clean_mapped_macrophage_data_long_format_07192023.csv"))
+
+clinical <- 
+  read_rds(paste0(here::here(),
+                  "/case_ctrl_data_07132023.rds"))
+
+```
+
+```{r prep data}
+tam_data <- left_join(tam_data %>% 
+                         mutate(suid = as.character(suid)),
+                      clinical,
+                      by = "suid")
+
+compartment_type <- "Tumor"
+tam_data <- tam_data %>% 
+  filter(compartment == compartment_type)
+
+```
+
+<span style="color: red;">Focus on `r compartment_type` compartment</span>
+
+# Table 1. Patient characteristics overall and by race/ethnicity
+
+```{r}
+tam_data %>% 
+  distinct(suid, .keep_all = TRUE) %>% 
+  select(refage, refage_cat, 
+         race, grade,
+         stage, histology,
+         histotype1, histotype2,
+         BMI_recent, BMI_recent_grp,
+        smoker, diab) %>% 
+  tbl_summary(statistic = list(all_continuous() ~ "{mean} ({sd})"),
+              label = list(refage ~ "Age at diagnosis", refage_cat ~ "Age at diagnosis category",
+                           diab ~ "Diabetes", stage ~ "Stage", histology ~ "Histology",
+                           # dblkstat_CA125 ~ "Debulking Status", adj ~ "Adjuvant chemotherapy",
+                           smoker ~ "Smoking status"),
+              type = list(diab ~ "categorical"),
+              digits = list(all_continuous() ~ 1)) %>%
+      modify_header(list(label ~ "**Patient characteristics**"#, all_stat_cols() ~ "**{level}**, N = {n}"
+                    )) %>%
+  bold_labels()
+```
+
+
+# TAM characteristic - focus on `r compartment_type` compartment
+```{r cleaning}
+tam_data %>% 
+  select(m1_simple_cells : m0_simple_cells_percent) %>% 
+  tbl_summary()
+```
+
+
+
+
+
+
+
+
+
