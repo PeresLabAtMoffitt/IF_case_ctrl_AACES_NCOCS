@@ -1,0 +1,294 @@
+---
+title: "TAM_TMA survival analysis using marker presence/absence to categorize macrophage types"
+author: "Christelle Colin-Leitzinger"
+date: "`r Sys.Date()`"
+output: 
+  html_document:
+    toc: true
+    toc_float: true
+    toc_collapsed: false
+    theme: cerulean #darkly
+    highlight: pygments
+    df_print: paged
+editor_options: 
+  chunk_output_type: console
+---
+
+<style type="text/css">
+
+.figure {
+   margin-top: 25px;
+   margin-bottom: 100px;
+}
+
+table {
+    margin-top: 10px;
+    margin-bottom: 25px;
+}
+</style>
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE,
+                      warning = FALSE,
+                      message = FALSE,
+                      cache = FALSE,
+                      fig.align='center'
+                      )
+```
+
+
+```{r library, echo = FALSE}
+library(tidyverse)
+library(labelled)
+library(gtsummary)
+library(survival)
+library(survminer)
+theme_gtsummary_compact()
+theme_set(theme_classic())
+```
+
+```{r load}
+tam_data <- 
+  read_rds(paste0(here::here(),
+                  "/Clean_mapped_macrophage_data_wide_format_with_cat_09282023.rds"))
+
+clinical <- 
+  read_rds(paste0(here::here(),
+                  "/case_ctrl_data_07132023.rds"))
+```
+
+```{r prep data}
+tam_data <- left_join(tam_data %>% 
+                         mutate(suid = as.character(suid)),
+                      clinical,
+                      by = "suid") %>% 
+  # Remove patients that have to be excluded for AACES
+  filter(!is.na(OCWAAID))
+
+compartment_type <- "Tumor"
+tam_data <- tam_data %>% 
+  filter(compartment == compartment_type)
+
+```
+
+```{r label}
+var_label(tam_data) <-
+  list(refage = "Patient Age", refage_cat = "Patient Age - Categories",
+       stage_cat = "Stage", histology = "Histology",
+       grade = "Grade",
+       m0_simple_cells = "MDSCs", m1_simple_cells = "M1",
+       m2_simple_cells = "M2", m0_simple_cells_percent = "MDSCs (%)",
+       m1_simple_cells_percent = "M1 (%)", 
+       m2_simple_cells_percent = "M2 (%)",
+       m0_simple_cells_cat = "MDSCs categories", m1_simple_cells_cat = "M1 categories",
+       m2_simple_cells_cat = "M2 categories", m0_simple_cells_percent_cat = "MDSCs categories (%)",
+       m1_simple_cells_percent_cat = "M1 categories (%)", 
+       m2_simple_cells_percent_cat = "M2 categories (%)"
+  )
+```
+
+<br>
+
+***
+<span style="color: steelblue; font-size: 40px;">Focus on `r compartment_type` compartment</span>
+
+***
+<br>
+
+# Table 1. Patient characteristics overall
+
+```{r}
+tam_data %>% 
+  # distinct(suid, .keep_all = TRUE) %>% 
+  select(refage, refage_cat, 
+         race, grade,
+         stage_cat, histology,
+         histotype1, histotype2) %>% 
+  tbl_summary(statistic = list(all_continuous() ~ "{mean} ({sd})"),
+              # label = list(refage ~ "Age at diagnosis", refage_cat ~ "Age at diagnosis category",
+              #              stage ~ "Stage", histology ~ "Histology"
+              #              # dblkstat_CA125 ~ "Debulking Status", adj ~ "Adjuvant chemotherapy",
+              #              ),
+              digits = list(all_continuous() ~ 1)) %>%
+      modify_header(list(label ~ "**Patient characteristics**"#, all_stat_cols() ~ "**{level}**, N = {n}"
+                    )) %>%
+  bold_labels()
+```
+
+* Note :  
+  * M1 are pro-inflammatory anti-tumoral macrophages detected by CD86 pSTAT1 staining  
+  * M2 are anti-inflammatory pro-tumoral macrophages (proliferation) detected by CD163 CD206 staining  
+  * CD68 staining for TAM  
+
+# TAM characteristic - focus on `r compartment_type` compartment
+```{r cleaning}
+tam_data %>% 
+  select(m1_simple_cells : m0_simple_cells_percent,
+         m1_simple_cells_cat : m0_simple_cells_percent_cat) %>% 
+  tbl_summary()
+```
+
+```{r}
+tam_data %>% 
+  select(m1_simple_cells : m0_simple_cells_percent) %>% 
+  pivot_longer(cols = everything(),
+               names_to = "cell_type") %>% 
+  mutate(cell_type = 
+           factor(cell_type, 
+                  levels = c("m0_simple_cells", "m1_simple_cells",
+                             "m2_simple_cells", "m0_simple_cells_percent",
+                             "m1_simple_cells_percent", 
+                             "m2_simple_cells_percent"))) %>% 
+  ggplot(aes(x= cell_type, y= value))+
+  geom_violin()+
+  scale_y_log10()+
+  coord_flip()
+
+tam_data %>% 
+  select(suid, m1_simple_cells : m0_simple_cells) %>% 
+  pivot_longer(cols = -suid,
+               names_to = "cell_type") %>% 
+  mutate(cell_type = 
+           factor(cell_type, 
+                  levels = c("m0_simple_cells", "m1_simple_cells",
+                             "m2_simple_cells"))) %>% 
+  ggpaired(x = "cell_type", y = "value", id = "suid",
+           color = "cell_type", line.color = "gray", line.size = 0.4, point.size = 0,
+           palette = "jco")+
+  scale_y_log10()+
+  coord_flip()
+
+tam_data %>% 
+  select(suid, m1_simple_cells_percent : m0_simple_cells_percent) %>% 
+  pivot_longer(cols = -suid,
+               names_to = "cell_type") %>% 
+  mutate(cell_type = 
+           factor(cell_type, 
+                  levels = c("m0_simple_cells_percent",
+                             "m1_simple_cells_percent", 
+                             "m2_simple_cells_percent"))) %>% 
+  ggpaired(x = "cell_type", y = "value", id = "suid",
+           color = "cell_type", line.color = "gray", line.size = 0.4, point.size = 0,
+           palette = "jco")+
+  scale_y_log10()+
+  coord_flip()
+```
+
+# Adjusted HR - continuous
+```{r}
+coxph(Surv(time = tam_data$os_time,
+                   event = tam_data$os_event) ~ m0_simple_cells_percent + refage + stage_cat,
+              data = tam_data)  %>%
+  tbl_regression(exponentiate = TRUE) %>%
+  bold_p(t = .05) %>%
+  add_nevent(location = "level") %>% add_n(location = "level")
+
+coxph(Surv(time = tam_data$os_time,
+                   event = tam_data$os_event) ~ m1_simple_cells_percent + refage + stage_cat,
+              data = tam_data)  %>%
+  tbl_regression(exponentiate = TRUE) %>%
+  bold_p(t = .05) %>%
+  add_nevent(location = "level") %>% add_n(location = "level")
+
+coxph(Surv(time = tam_data$os_time,
+                   event = tam_data$os_event) ~ m2_simple_cells_percent + refage + stage_cat,
+              data = tam_data)  %>%
+  tbl_regression(exponentiate = TRUE) %>%
+  bold_p(t = .05) %>%
+  add_nevent(location = "level") %>% add_n(location = "level")
+#
+coxph(Surv(time = tam_data$os_time,
+                   event = tam_data$os_event) ~ m0_simple_cells + refage + stage_cat,
+              data = tam_data)  %>%
+  tbl_regression(exponentiate = TRUE) %>%
+  bold_p(t = .05) %>%
+  add_nevent(location = "level") %>% add_n(location = "level")
+
+coxph(Surv(time = tam_data$os_time,
+                   event = tam_data$os_event) ~ m1_simple_cells + refage + stage_cat,
+              data = tam_data)  %>%
+  tbl_regression(exponentiate = TRUE) %>%
+  bold_p(t = .05) %>%
+  add_nevent(location = "level") %>% add_n(location = "level")
+
+coxph(Surv(time = tam_data$os_time,
+                   event = tam_data$os_event) ~ m2_simple_cells + refage + stage_cat,
+              data = tam_data)  %>%
+  tbl_regression(exponentiate = TRUE) %>%
+  bold_p(t = .05) %>%
+  add_nevent(location = "level") %>% add_n(location = "level")
+```
+
+# Adjusted HR - categories
+```{r}
+coxph(Surv(time = tam_data$os_time,
+                   event = tam_data$os_event) ~ m0_simple_cells_percent_cat + refage + stage_cat,
+              data = tam_data)  %>%
+  tbl_regression(exponentiate = TRUE) %>%
+  bold_p(t = .05) %>%
+  add_nevent(location = "level") %>% add_n(location = "level")
+
+coxph(Surv(time = tam_data$os_time,
+                   event = tam_data$os_event) ~ m1_simple_cells_percent_cat + refage + stage_cat,
+              data = tam_data)  %>%
+  tbl_regression(exponentiate = TRUE) %>%
+  bold_p(t = .05) %>%
+  add_nevent(location = "level") %>% add_n(location = "level")
+
+coxph(Surv(time = tam_data$os_time,
+                   event = tam_data$os_event) ~ m2_simple_cells_percent_cat + refage + stage_cat,
+              data = tam_data)  %>%
+  tbl_regression(exponentiate = TRUE) %>%
+  bold_p(t = .05) %>%
+  add_nevent(location = "level") %>% add_n(location = "level")
+#
+coxph(Surv(time = tam_data$os_time,
+                   event = tam_data$os_event) ~ m0_simple_cells_cat + refage + stage_cat,
+              data = tam_data)  %>%
+  tbl_regression(exponentiate = TRUE) %>%
+  bold_p(t = .05) %>%
+  add_nevent(location = "level") %>% add_n(location = "level")
+
+coxph(Surv(time = tam_data$os_time,
+                   event = tam_data$os_event) ~ m1_simple_cells_cat + refage + stage_cat,
+              data = tam_data)  %>%
+  tbl_regression(exponentiate = TRUE) %>%
+  bold_p(t = .05) %>%
+  add_nevent(location = "level") %>% add_n(location = "level")
+
+coxph(Surv(time = tam_data$os_time,
+                   event = tam_data$os_event) ~ m2_simple_cells_cat + refage + stage_cat,
+              data = tam_data)  %>%
+  tbl_regression(exponentiate = TRUE) %>%
+  bold_p(t = .05) %>%
+  add_nevent(location = "level") %>% add_n(location = "level")
+```
+
+# KM
+```{r}
+ggsurvplot(survfit(Surv(os_time, os_event) ~ m0_simple_cells_cat, 
+                   data=tam_data),
+           title = "OS Analysis",
+           font.main = c(20, "bold", "black"),
+           font.x = c(18, "bold", "black"),
+           font.y = c(18, "bold", "black"),
+           font.legend = c(16, "black"),
+           font.tickslab = c(16, "bold", "black"),
+           size = 1.5,
+           
+           xlab = "Time in months",
+           legend = "top",
+           legend.title = "MDSCs categories",
+           pval = TRUE,
+           conf.int = FALSE,
+           # Censor
+           censor = TRUE
+) + guides(colour = guide_legend(ncol = 1))
+```
+
+
+
+
+
+
