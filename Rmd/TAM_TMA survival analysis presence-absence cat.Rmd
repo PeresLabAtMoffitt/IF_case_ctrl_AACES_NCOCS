@@ -51,7 +51,7 @@ theme_set(theme_classic())
 ```{r load}
 tam_data <- 
   read_rds(paste0(here::here(),
-                  "/Clean_mapped_macrophage_data_wide_format_with_cat_09282023.rds"))
+                  "/Clean_mapped_macrophage_data_long_format_with_cat_09282023.rds"))
 
 clinical <- 
   read_rds(paste0(here::here(),
@@ -286,7 +286,34 @@ ggsurvplot(survfit(Surv(os_time, os_event) ~ m0_simple_cells_cat,
            censor = TRUE
 ) + guides(colour = guide_legend(ncol = 1))
 ```
+<br>
+<br>
 
+***
+<br>
+
+# Analysis using all cores
+```{r load cores}
+core_data <- 
+  read_csv(paste0(here::here(),
+                  "/Not_average_Clean_mapped_macrophage_data_long_format_07192023.csv"))
+
+clinical <- 
+  read_rds(paste0(here::here(),
+                  "/case_ctrl_data_07132023.rds"))
+```
+
+```{r prep cores}
+core_data <- left_join(core_data %>% 
+                         mutate(suid = as.character(suid)),
+                      clinical,
+                      by = "suid") %>% 
+  # Remove patients that have to be excluded for AACES
+  filter(!is.na(OCWAAID))
+
+core_data <- core_data %>% 
+  filter(compartment == compartment_type)
+```
 
 
 

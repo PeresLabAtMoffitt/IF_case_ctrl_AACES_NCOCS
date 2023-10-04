@@ -75,7 +75,7 @@ tma_map2018 <-
            "/TAM panel/TAM TMA Map.xlsx"),
     sheet = "TMA 2018")
 
-############################################################################## I ### Clean data----
+############################################################################## II ### Clean data----
 # map data
 tma_map <- bind_rows(tma_map2017,
                      tma_map2018, .id = "version") %>% 
@@ -216,7 +216,7 @@ stroma_data <- data_summ(stroma_data) %>%
   select(-tma)
 
 
-# Bind / Join data
+############################################################################## III ### Bind / Join data
 long_data <- bind_rows(total_data,
                        tumor_data %>% 
                          `colnames<-`(str_remove(colnames(.), "tumor_")),
@@ -260,7 +260,28 @@ wide_data <-
 write_csv(wide_data, "Clean_mapped_macrophage_data_wide_format_07192023.csv")
 
 
+############################################################################## IV ### Create categories----
+long_data <- 
+  read_csv(paste0(here::here(),
+                  "/Clean_mapped_macrophage_data_long_format_07192023.csv"))
 
+
+long_data <- long_data %>% 
+  # mutate(across(c(m1_simple_cells : neutral_4060p), 
+  #               ~ median(.), .names = "{.col}_cat"
+  # )) %>% 
+  mutate(across(c(m1_simple_cells : neutral_4060p), ~ case_when(
+    . < median(.)                ~ "Low",
+    . >= median(.)               ~ "High"
+  ), .names = "{.col}_cat")) %>% 
+  mutate(across(c(m1_simple_cells_cat : neutral_4060p_cat), 
+                ~ factor(., levels = c("Low", "High"))))
+
+write_csv(long_data, "Clean_mapped_macrophage_data_long_format_with_cat_09282023.csv")
+write_rds(long_data, "Clean_mapped_macrophage_data_long_format_with_cat_09282023.rds")
+
+
+# End
 
 
 
