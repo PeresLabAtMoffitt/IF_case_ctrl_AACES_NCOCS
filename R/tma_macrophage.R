@@ -261,10 +261,10 @@ write_csv(wide_data, "Clean_mapped_macrophage_data_wide_format_07192023.csv")
 
 
 ############################################################################## IV ### Create categories----
+# For averaged data
 long_data <- 
   read_csv(paste0(here::here(),
                   "/Clean_mapped_macrophage_data_long_format_07192023.csv"))
-
 
 long_data <- long_data %>% 
   # mutate(across(c(m1_simple_cells : neutral_4060p), 
@@ -280,10 +280,21 @@ long_data <- long_data %>%
 write_csv(long_data, "Clean_mapped_macrophage_data_long_format_with_cat_09282023.csv")
 write_rds(long_data, "Clean_mapped_macrophage_data_long_format_with_cat_09282023.rds")
 
+# For non-averaged data
+long_data <- 
+  read_csv(paste0(here::here(),
+                  "/Not_average_Clean_mapped_macrophage_data_long_format_07192023.csv"))
+
+long_data <- long_data %>% 
+  mutate(across(c(m1_simple_cells : neutral_4060p), ~ case_when(
+    . < median(.)                ~ "Low",
+    . >= median(.)               ~ "High"
+  ), .names = "{.col}_cat")) %>% 
+  mutate(across(c(m1_simple_cells_cat : neutral_4060p_cat), 
+                ~ factor(., levels = c("Low", "High"))))
+
+write_csv(long_data, "Clean_mapped_macrophage_bycore_data_long_format_with_cat_09282023.csv")
+write_rds(long_data, "Clean_mapped_macrophage_bycore_data_long_format_with_cat_09282023.rds")
+
 
 # End
-
-
-
-
-
