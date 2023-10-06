@@ -1,5 +1,5 @@
 ---
-title: "TAM_TMA survival analysis using marker presence/absence to categorize macrophage types"
+title: "TAM_TMA survival analysis using marker cutpoint to categorize macrophage types"
 author: "Christelle Colin-Leitzinger"
 date: "`r Sys.Date()`"
 output: 
@@ -68,7 +68,7 @@ tx_data_aaces <-
 
 ```{r prep data}
 tam_data <- left_join(tam_data %>% 
-                        mutate(suid = as.character(suid)),
+                         mutate(suid = as.character(suid)),
                       clinical,
                       by = "suid") %>% 
   # Remove patients that have to be excluded for AACES
@@ -88,14 +88,14 @@ var_label(tam_data) <-
   list(refage = "Patient Age", refage_cat = "Patient Age - Categories",
        stage_cat = "Stage", histology = "Histology",
        grade = "Grade", dblkstat_CA125 = "Debulking Status",
-       m0_simple_cells = "MDSCs", m1_simple_cells = "M1",
-       m2_simple_cells = "M2", m0_simple_cells_percent = "MDSCs (%)",
-       m1_simple_cells_percent = "M1 (%)",
-       m2_simple_cells_percent = "M2 (%)",
-       m0_simple_cells_cat = "MDSCs categories", m1_simple_cells_cat = "M1 categories",
-       m2_simple_cells_cat = "M2 categories", m0_simple_cells_percent_cat = "MDSCs categories (%)",
-       m1_simple_cells_percent_cat = "M1 categories (%)",
-       m2_simple_cells_percent_cat = "M2 categories (%)"
+       neutral_3070p = "Neutrals at 30/70", m1_70p = "M1 at 30/70",
+       m2_30p = "M2 at 30/70", neutral_4060p = "Neutrals at 40/60",
+       m1_60p = "M1 at 40/60", 
+       m2_40p = "M2 at 40/60",
+       neutral_3070p_cat = "Neutrals at 30/70 categories", m1_70p_cat = "M1 at 30/70 categories",
+       m2_30p_cat = "M2 at 30/70 categories", neutral_4060p_cat = "Neutrals at 40/60 categories",
+       m1_60p_cat = "M1 at 40/60 categories", 
+       m2_40p_cat = "M2 at 40/60 categories"
   )
 ```
 
@@ -110,12 +110,12 @@ var_label(tam_data) <-
 # I. Table 1. Patient characteristics overall
 
 ```{r}
-tam_data %>%
-  # distinct(suid, .keep_all = TRUE) %>%
-  select(refage, refage_cat,
+tam_data %>% 
+  distinct(suid, .keep_all = TRUE) %>% 
+  select(refage, refage_cat, 
          race, grade, dblkstat_CA125,
          stage_cat, histology,
-         histotype1, histotype2) %>%
+         histotype1, histotype2) %>% 
   tbl_summary(statistic = list(all_continuous() ~ "{mean} ({sd})"),
               # label = list(refage ~ "Age at diagnosis", refage_cat ~ "Age at diagnosis category",
               #              stage ~ "Stage", histology ~ "Histology"
@@ -127,44 +127,51 @@ tam_data %>%
   bold_labels()
 ```
 
-* Note :
-  * M1 are pro-inflammatory anti-tumoral macrophages detected by CD86 pSTAT1 staining
-  * M2 are anti-inflammatory pro-tumoral macrophages (proliferation) detected by CD163 CD206 staining
-  * CD68 staining for TAM
+* Note :  
+  * Calculation is restricted to CD68+ cells (TAM)  
+  * Starting from this restricted per cell data, Alex calculated a log10 of the index M1:M2 using  
+
+  $$
+  M1:M2\ index= \frac{CD86\ Cytoplasm\ Intensity\ \times PSTAT1\ Nuclear\ Intensity}{CD206\ Cytoplasm\ Intensity\ \times CD163\ Cytoplasm\ Intensity}
+  $$
+
+  * M1 - Neutrals - M2 are then categorized using quantile cut-points (2 different cut-points were tested - quantile 70/30 or 60/40)  
+    * If log10(M1:M2 index) > quantile 0.7 or 0.6 (aka more M1 markers), the cell is identified as M1 (pro-inflammatory anti-tumoral macrophages)  
+    * If log10(M1:M2 index) < quantile 0.3 or 0.4 (aka more M1 markers), the cell is identified as M2 (are )anti-inflammatory pro-tumoral macrophages (proliferation))  
+    * Cells that have log10(M1:M2 index) between quantiles 0.7-0.3 (or 0.6-0.4) are Neutrals cells. Mary showed me that the cells classified as Neutrals with this approach and the same cells classified as M0 using the simple classification (presence or absence of M1 or M2 markers) have a 0.81 correlation coefficient (r)  
 
 # Analysis using averaged cores
 # II. TAM characteristic - focus on `r compartment_type` compartment
-```{r table}
+```{r cleaning}
 tam_data %>%
-  select(m1_simple_cells : m0_simple_cells_percent,
-         m1_simple_cells_cat : m0_simple_cells_percent_cat) %>%
+  select(m1_70p : neutral_4060p,
+         m1_70p_cat : neutral_4060p_cat) %>%
   tbl_summary()
 ```
 
 ```{r}
 tam_data %>%
-  select(m1_simple_cells : m0_simple_cells_percent) %>%
+  select(m1_70p : neutral_4060p) %>%
   pivot_longer(cols = everything(),
                names_to = "cell_type") %>%
   mutate(cell_type =
            factor(cell_type,
-                  levels = c("m0_simple_cells", "m1_simple_cells",
-                             "m2_simple_cells", "m0_simple_cells_percent",
-                             "m1_simple_cells_percent",
-                             "m2_simple_cells_percent"))) %>%
+                  levels = c("neutral_3070p", "m1_70p",
+                             "m2_30p", "neutral_4060p",
+                             "m1_60p", "m2_40p"))) %>%
   ggplot(aes(x= cell_type, y= value))+
   geom_violin()+
   scale_y_log10()+
   coord_flip()
 
 tam_data %>%
-  select(suid, m1_simple_cells : m0_simple_cells) %>%
+  select(suid, m1_70p : neutral_3070p) %>%
   pivot_longer(cols = -suid,
                names_to = "cell_type") %>%
   mutate(cell_type =
            factor(cell_type,
-                  levels = c("m0_simple_cells", "m1_simple_cells",
-                             "m2_simple_cells"))) %>%
+                  levels = c("neutral_3070p", "m1_70p",
+                             "m2_30p"))) %>%
   ggpaired(x = "cell_type", y = "value", id = "suid",
            color = "cell_type", line.color = "gray", line.size = 0.4, point.size = 0,
            palette = "jco")+
@@ -172,14 +179,13 @@ tam_data %>%
   coord_flip()
 
 tam_data %>%
-  select(suid, m1_simple_cells_percent : m0_simple_cells_percent) %>%
+  select(suid, m1_60p : neutral_4060p) %>%
   pivot_longer(cols = -suid,
                names_to = "cell_type") %>%
   mutate(cell_type =
            factor(cell_type,
-                  levels = c("m0_simple_cells_percent",
-                             "m1_simple_cells_percent",
-                             "m2_simple_cells_percent"))) %>%
+                  levels = c("neutral_4060p",
+                             "m1_60p", "m2_40p"))) %>%
   ggpaired(x = "cell_type", y = "value", id = "suid",
            color = "cell_type", line.color = "gray", line.size = 0.4, point.size = 0,
            palette = "jco")+
@@ -191,42 +197,42 @@ tam_data %>%
 ## 1. Adjusted HR - continuous
 ```{r}
 coxph(Surv(time = tam_data$os_time,
-                   event = tam_data$os_event) ~ m0_simple_cells_percent + refage + stage_cat + histotype2,
+                   event = tam_data$os_event) ~ neutral_3070p + refage + stage_cat + histotype2,
               data = tam_data)  %>%
   tbl_regression(exponentiate = TRUE) %>%
   bold_p(t = .05) %>%
   add_nevent(location = "level") %>% add_n(location = "level")
 
 coxph(Surv(time = tam_data$os_time,
-                   event = tam_data$os_event) ~ m1_simple_cells_percent + refage + stage_cat + histotype2,
+                   event = tam_data$os_event) ~ m1_70p + refage + stage_cat + histotype2,
               data = tam_data)  %>%
   tbl_regression(exponentiate = TRUE) %>%
   bold_p(t = .05) %>%
   add_nevent(location = "level") %>% add_n(location = "level")
 
 coxph(Surv(time = tam_data$os_time,
-                   event = tam_data$os_event) ~ m2_simple_cells_percent + refage + stage_cat + histotype2,
+                   event = tam_data$os_event) ~ m2_30p + refage + stage_cat + histotype2,
               data = tam_data)  %>%
   tbl_regression(exponentiate = TRUE) %>%
   bold_p(t = .05) %>%
   add_nevent(location = "level") %>% add_n(location = "level")
 #
 coxph(Surv(time = tam_data$os_time,
-                   event = tam_data$os_event) ~ m0_simple_cells + refage + stage_cat + histotype2,
+                   event = tam_data$os_event) ~ neutral_4060p + refage + stage_cat + histotype2,
               data = tam_data)  %>%
   tbl_regression(exponentiate = TRUE) %>%
   bold_p(t = .05) %>%
   add_nevent(location = "level") %>% add_n(location = "level")
 
 coxph(Surv(time = tam_data$os_time,
-                   event = tam_data$os_event) ~ m1_simple_cells + refage + stage_cat + histotype2,
+                   event = tam_data$os_event) ~ m1_60p + refage + stage_cat + histotype2,
               data = tam_data)  %>%
   tbl_regression(exponentiate = TRUE) %>%
   bold_p(t = .05) %>%
   add_nevent(location = "level") %>% add_n(location = "level")
 
 coxph(Surv(time = tam_data$os_time,
-                   event = tam_data$os_event) ~ m2_simple_cells + refage + stage_cat + histotype2,
+                   event = tam_data$os_event) ~ m2_40p + refage + stage_cat + histotype2,
               data = tam_data)  %>%
   tbl_regression(exponentiate = TRUE) %>%
   bold_p(t = .05) %>%
@@ -236,42 +242,42 @@ coxph(Surv(time = tam_data$os_time,
 ## 2. Adjusted HR - categories
 ```{r}
 coxph(Surv(time = tam_data$os_time,
-                   event = tam_data$os_event) ~ m0_simple_cells_percent_cat + refage + stage_cat + histotype2,
+                   event = tam_data$os_event) ~ neutral_3070p_cat + refage + stage_cat + histotype2,
               data = tam_data)  %>%
   tbl_regression(exponentiate = TRUE) %>%
   bold_p(t = .05) %>%
   add_nevent(location = "level") %>% add_n(location = "level")
 
 coxph(Surv(time = tam_data$os_time,
-                   event = tam_data$os_event) ~ m1_simple_cells_percent_cat + refage + stage_cat + histotype2,
+                   event = tam_data$os_event) ~ m1_70p_cat + refage + stage_cat + histotype2,
               data = tam_data)  %>%
   tbl_regression(exponentiate = TRUE) %>%
   bold_p(t = .05) %>%
   add_nevent(location = "level") %>% add_n(location = "level")
 
 coxph(Surv(time = tam_data$os_time,
-                   event = tam_data$os_event) ~ m2_simple_cells_percent_cat + refage + stage_cat + histotype2,
+                   event = tam_data$os_event) ~ m2_30p_cat + refage + stage_cat + histotype2,
               data = tam_data)  %>%
   tbl_regression(exponentiate = TRUE) %>%
   bold_p(t = .05) %>%
   add_nevent(location = "level") %>% add_n(location = "level")
 #
 coxph(Surv(time = tam_data$os_time,
-                   event = tam_data$os_event) ~ m0_simple_cells_cat + refage + stage_cat + histotype2,
+                   event = tam_data$os_event) ~ neutral_4060p_cat + refage + stage_cat + histotype2,
               data = tam_data)  %>%
   tbl_regression(exponentiate = TRUE) %>%
   bold_p(t = .05) %>%
   add_nevent(location = "level") %>% add_n(location = "level")
 
 coxph(Surv(time = tam_data$os_time,
-                   event = tam_data$os_event) ~ m1_simple_cells_cat + refage + stage_cat + histotype2,
+                   event = tam_data$os_event) ~ m1_60p_cat + refage + stage_cat + histotype2,
               data = tam_data)  %>%
   tbl_regression(exponentiate = TRUE) %>%
   bold_p(t = .05) %>%
   add_nevent(location = "level") %>% add_n(location = "level")
 
 coxph(Surv(time = tam_data$os_time,
-                   event = tam_data$os_event) ~ m2_simple_cells_cat + refage + stage_cat + histotype2,
+                   event = tam_data$os_event) ~ m2_40p_cat + refage + stage_cat + histotype2,
               data = tam_data)  %>%
   tbl_regression(exponentiate = TRUE) %>%
   bold_p(t = .05) %>%
@@ -282,42 +288,42 @@ coxph(Surv(time = tam_data$os_time,
 ## 1. Adjusted HR - continuous
 ```{r}
 coxph(Surv(time = tam_data$os_time,
-                   event = tam_data$os_event) ~ m0_simple_cells_percent + refage + stage_cat + histotype2 + dblkstat_CA125,
+                   event = tam_data$os_event) ~ neutral_4060p + refage + stage_cat + histotype2 + dblkstat_CA125,
               data = tam_data)  %>%
   tbl_regression(exponentiate = TRUE) %>%
   bold_p(t = .05) %>%
   add_nevent(location = "level") %>% add_n(location = "level")
 
 coxph(Surv(time = tam_data$os_time,
-                   event = tam_data$os_event) ~ m1_simple_cells_percent + refage + stage_cat + histotype2 + dblkstat_CA125,
+                   event = tam_data$os_event) ~ m1_60p + refage + stage_cat + histotype2 + dblkstat_CA125,
               data = tam_data)  %>%
   tbl_regression(exponentiate = TRUE) %>%
   bold_p(t = .05) %>%
   add_nevent(location = "level") %>% add_n(location = "level")
 
 coxph(Surv(time = tam_data$os_time,
-                   event = tam_data$os_event) ~ m2_simple_cells_percent + refage + stage_cat + histotype2 + dblkstat_CA125,
+                   event = tam_data$os_event) ~ m2_40p + refage + stage_cat + histotype2 + dblkstat_CA125,
               data = tam_data)  %>%
   tbl_regression(exponentiate = TRUE) %>%
   bold_p(t = .05) %>%
   add_nevent(location = "level") %>% add_n(location = "level")
 #
 coxph(Surv(time = tam_data$os_time,
-                   event = tam_data$os_event) ~ m0_simple_cells + refage + stage_cat + histotype2 + dblkstat_CA125,
+                   event = tam_data$os_event) ~ neutral_3070p + refage + stage_cat + histotype2 + dblkstat_CA125,
               data = tam_data)  %>%
   tbl_regression(exponentiate = TRUE) %>%
   bold_p(t = .05) %>%
   add_nevent(location = "level") %>% add_n(location = "level")
 
 coxph(Surv(time = tam_data$os_time,
-                   event = tam_data$os_event) ~ m1_simple_cells + refage + stage_cat + histotype2 + dblkstat_CA125,
+                   event = tam_data$os_event) ~ m1_70p + refage + stage_cat + histotype2 + dblkstat_CA125,
               data = tam_data)  %>%
   tbl_regression(exponentiate = TRUE) %>%
   bold_p(t = .05) %>%
   add_nevent(location = "level") %>% add_n(location = "level")
 
 coxph(Surv(time = tam_data$os_time,
-                   event = tam_data$os_event) ~ m2_simple_cells + refage + stage_cat + histotype2 + dblkstat_CA125,
+                   event = tam_data$os_event) ~ m2_30p + refage + stage_cat + histotype2 + dblkstat_CA125,
               data = tam_data)  %>%
   tbl_regression(exponentiate = TRUE) %>%
   bold_p(t = .05) %>%
@@ -327,42 +333,42 @@ coxph(Surv(time = tam_data$os_time,
 ## 2. Adjusted HR - categories
 ```{r}
 coxph(Surv(time = tam_data$os_time,
-                   event = tam_data$os_event) ~ m0_simple_cells_percent_cat + refage + stage_cat + histotype2 + dblkstat_CA125,
+                   event = tam_data$os_event) ~ neutral_4060p_cat + refage + stage_cat + histotype2 + dblkstat_CA125,
               data = tam_data)  %>%
   tbl_regression(exponentiate = TRUE) %>%
   bold_p(t = .05) %>%
   add_nevent(location = "level") %>% add_n(location = "level")
 
 coxph(Surv(time = tam_data$os_time,
-                   event = tam_data$os_event) ~ m1_simple_cells_percent_cat + refage + stage_cat + histotype2 + dblkstat_CA125,
+                   event = tam_data$os_event) ~ m1_60p_cat + refage + stage_cat + histotype2 + dblkstat_CA125,
               data = tam_data)  %>%
   tbl_regression(exponentiate = TRUE) %>%
   bold_p(t = .05) %>%
   add_nevent(location = "level") %>% add_n(location = "level")
 
 coxph(Surv(time = tam_data$os_time,
-                   event = tam_data$os_event) ~ m2_simple_cells_percent_cat + refage + stage_cat + histotype2 + dblkstat_CA125,
+                   event = tam_data$os_event) ~ m2_40p_cat + refage + stage_cat + histotype2 + dblkstat_CA125,
               data = tam_data)  %>%
   tbl_regression(exponentiate = TRUE) %>%
   bold_p(t = .05) %>%
   add_nevent(location = "level") %>% add_n(location = "level")
 #
 coxph(Surv(time = tam_data$os_time,
-                   event = tam_data$os_event) ~ m0_simple_cells_cat + refage + stage_cat + histotype2 + dblkstat_CA125,
+                   event = tam_data$os_event) ~ neutral_3070p_cat + refage + stage_cat + histotype2 + dblkstat_CA125,
               data = tam_data)  %>%
   tbl_regression(exponentiate = TRUE) %>%
   bold_p(t = .05) %>%
   add_nevent(location = "level") %>% add_n(location = "level")
 
 coxph(Surv(time = tam_data$os_time,
-                   event = tam_data$os_event) ~ m1_simple_cells_cat + refage + stage_cat + histotype2 + dblkstat_CA125,
+                   event = tam_data$os_event) ~ m1_70p_cat + refage + stage_cat + histotype2 + dblkstat_CA125,
               data = tam_data)  %>%
   tbl_regression(exponentiate = TRUE) %>%
   bold_p(t = .05) %>%
   add_nevent(location = "level") %>% add_n(location = "level")
 
 coxph(Surv(time = tam_data$os_time,
-                   event = tam_data$os_event) ~ m2_simple_cells_cat + refage + stage_cat + histotype2 + dblkstat_CA125,
+                   event = tam_data$os_event) ~ m2_30p_cat + refage + stage_cat + histotype2 + dblkstat_CA125,
               data = tam_data)  %>%
   tbl_regression(exponentiate = TRUE) %>%
   bold_p(t = .05) %>%
@@ -374,7 +380,7 @@ coxph(Surv(time = tam_data$os_time,
 
 # V. KM
 ```{r}
-ggsurvplot(survfit(Surv(os_time, os_event) ~ m0_simple_cells_cat,
+ggsurvplot(survfit(Surv(os_time, os_event) ~ m2_40p_cat,
                    data=tam_data),
            title = "OS Analysis",
            font.main = c(20, "bold", "black"),
@@ -386,7 +392,7 @@ ggsurvplot(survfit(Surv(os_time, os_event) ~ m0_simple_cells_cat,
 
            xlab = "Time in months",
            legend = "top",
-           legend.title = "MDSCs categories",
+           legend.title = "M2 at 40p cutpoint categories",
            pval = TRUE,
            conf.int = FALSE,
            # Censor
@@ -401,24 +407,24 @@ ggsurvplot(survfit(Surv(os_time, os_event) ~ m0_simple_cells_cat,
 
 # Analysis using all cores
 ```{r load cores}
-core_data <- 
+core_data <-
   read_rds(paste0(here::here(),
                   "/Clean_mapped_macrophage_bycore_data_long_format_with_cat_09282023.rds"))
 ```
 
 ```{r prep cores}
-core_data <- left_join(core_data %>% 
+core_data <- left_join(core_data %>%
                          mutate(suid = as.character(suid)),
                       clinical,
-                      by = "suid") %>% 
+                      by = "suid") %>%
   # Remove patients that have to be excluded for AACES
-  filter(!is.na(OCWAAID)) %>% 
+  filter(!is.na(OCWAAID)) %>%
   # Add debulking status
-  left_join(., tx_data_aaces %>% 
+  left_join(., tx_data_aaces %>%
               mutate(suid = as.character(suid)),
                       by = "suid")
 
-core_data <- core_data %>% 
+core_data <- core_data %>%
   filter(compartment == compartment_type)
 ```
 
@@ -427,8 +433,8 @@ core_data <- core_data %>%
 ```{r}
 library(psych)
 
-icc_data <- core_data %>% 
-  select(suid, m1_simple_cells : m0_simple_cells_percent)
+icc_data <- core_data %>%
+  select(suid, m1_70p : neutral_4060p)
 class(icc_data) <- "data.frame"
 
 fct_icc <- function(data) {
@@ -437,7 +443,7 @@ fct_icc <- function(data) {
   up_data <- data.frame(matrix(nrow = 1, ncol = 0))
   for (i in 1:length(colnames(data))) {
     ids <- data %>% select(suid)
-    
+
     if (class(data[, i]) == "numeric" |
         class(data[, i]) == "integer") {
       ICC_df <- cbind(ids, value = data[, i])
@@ -450,16 +456,16 @@ fct_icc <- function(data) {
         pivot_wider(names_from = slide_id, values_from = value
         ) %>%
         select(c(starts_with("slide")))
-      
+
       ICC <- ICC(ICC_df)$results[4, 2]
       ICC_data <- cbind(ICC_data, ICC)
       ICC <- ICC(ICC_df)$results[4, 7]
       lb_data <- cbind(lb_data, ICC)
       ICC <- ICC(ICC_df)$results[4, 8]
       up_data <- cbind(up_data, ICC)
-      
+
     }
-    
+
   }
   ICCC_data <- bind_rows(ICC_data, lb_data, up_data)
   colnames(ICCC_data) <- colnames(data)[2:ncol(data)]
@@ -479,14 +485,14 @@ var_label(core_data) <-
   list(refage = "Patient Age", refage_cat = "Patient Age - Categories",
        stage_cat = "Stage", histology = "Histology",
        grade = "Grade", dblkstat_CA125 = "Debulking Status",
-       m0_simple_cells = "MDSCs", m1_simple_cells = "M1",
-       m2_simple_cells = "M2", m0_simple_cells_percent = "MDSCs (%)",
-       m1_simple_cells_percent = "M1 (%)",
-       m2_simple_cells_percent = "M2 (%)",
-       m0_simple_cells_cat = "MDSCs categories", m1_simple_cells_cat = "M1 categories",
-       m2_simple_cells_cat = "M2 categories", m0_simple_cells_percent_cat = "MDSCs categories (%)",
-       m1_simple_cells_percent_cat = "M1 categories (%)",
-       m2_simple_cells_percent_cat = "M2 categories (%)"
+       neutral_3070p = "Neutrals at 30/70", m1_70p = "M1 at 30/70",
+       m2_30p = "M2 at 30/70", neutral_4060p = "Neutrals at 40/60",
+       m1_60p = "M1 at 40/60",
+       m2_40p = "M2 at 40/60",
+       neutral_3070p_cat = "Neutrals at 30/70 categories", m1_70p_cat = "M1 at 30/70 categories",
+       m2_30p_cat = "M2 at 30/70 categories", neutral_4060p_cat = "Neutrals at 40/60 categories",
+       m1_60p_cat = "M1 at 40/60 categories",
+       m2_40p_cat = "M2 at 40/60 categories"
   )
 ```
 
@@ -494,22 +500,22 @@ var_label(core_data) <-
 # VI. TAM characteristic - focus on `r compartment_type` compartment
 ```{r table cores}
 core_data %>%
-  select(m1_simple_cells : m0_simple_cells_percent,
-         m1_simple_cells_cat : m0_simple_cells_percent_cat) %>%
+  select(m1_70p : neutral_4060p,
+         m1_70p_cat : neutral_4060p_cat) %>%
   tbl_summary()
 ```
 
 ```{r}
 core_data %>%
-  select(m1_simple_cells : m0_simple_cells_percent) %>%
+  select(m1_70p : neutral_4060p) %>%
   pivot_longer(cols = everything(),
                names_to = "cell_type") %>%
   mutate(cell_type =
            factor(cell_type,
-                  levels = c("m0_simple_cells", "m1_simple_cells",
-                             "m2_simple_cells", "m0_simple_cells_percent",
-                             "m1_simple_cells_percent",
-                             "m2_simple_cells_percent"))) %>%
+                  levels = c("neutral_3070p", "m1_70p",
+                             "m2_30p", "neutral_4060p",
+                             "m1_60p",
+                             "m2_40p"))) %>%
   ggplot(aes(x= cell_type, y= value))+
   geom_violin()+
   scale_y_log10()+
@@ -520,7 +526,7 @@ core_data %>%
 ## 1. Adjusted HR (**include each 3 values and use the cluster option**) - continuous
 ```{r}
 coxph(Surv(time = core_data$os_time,
-           event = core_data$os_event) ~ m0_simple_cells_percent + refage + stage_cat + histotype2,
+           event = core_data$os_event) ~ neutral_4060p + refage + stage_cat + histotype2,
       cluster = suid,
       data = core_data)  %>%
   tbl_regression(exponentiate = TRUE) %>%
@@ -528,7 +534,7 @@ coxph(Surv(time = core_data$os_time,
   add_nevent(location = "level") %>% add_n(location = "level")
 
 coxph(Surv(time = core_data$os_time,
-           event = core_data$os_event) ~ m1_simple_cells_percent + refage + stage_cat + histotype2,
+           event = core_data$os_event) ~ m1_60p + refage + stage_cat + histotype2,
       cluster = suid,
       data = core_data)  %>%
   tbl_regression(exponentiate = TRUE) %>%
@@ -536,7 +542,7 @@ coxph(Surv(time = core_data$os_time,
   add_nevent(location = "level") %>% add_n(location = "level")
 
 coxph(Surv(time = core_data$os_time,
-           event = core_data$os_event) ~ m2_simple_cells_percent + refage + stage_cat + histotype2,
+           event = core_data$os_event) ~ m2_40p + refage + stage_cat + histotype2,
       cluster = suid,
       data = core_data)  %>%
   tbl_regression(exponentiate = TRUE) %>%
@@ -544,7 +550,7 @@ coxph(Surv(time = core_data$os_time,
   add_nevent(location = "level") %>% add_n(location = "level")
 #
 coxph(Surv(time = core_data$os_time,
-           event = core_data$os_event) ~ m0_simple_cells + refage + stage_cat + histotype2,
+           event = core_data$os_event) ~ neutral_3070p + refage + stage_cat + histotype2,
       cluster = suid,
       data = core_data)  %>%
   tbl_regression(exponentiate = TRUE) %>%
@@ -552,7 +558,7 @@ coxph(Surv(time = core_data$os_time,
   add_nevent(location = "level") %>% add_n(location = "level")
 
 coxph(Surv(time = core_data$os_time,
-           event = core_data$os_event) ~ m1_simple_cells + refage + stage_cat + histotype2,
+           event = core_data$os_event) ~ m1_70p + refage + stage_cat + histotype2,
       cluster = suid,
       data = core_data)  %>%
   tbl_regression(exponentiate = TRUE) %>%
@@ -560,7 +566,7 @@ coxph(Surv(time = core_data$os_time,
   add_nevent(location = "level") %>% add_n(location = "level")
 
 coxph(Surv(time = core_data$os_time,
-           event = core_data$os_event) ~ m2_simple_cells + refage + stage_cat + histotype2,
+           event = core_data$os_event) ~ m2_30p + refage + stage_cat + histotype2,
       cluster = suid,
       data = core_data)  %>%
   tbl_regression(exponentiate = TRUE) %>%
@@ -571,7 +577,7 @@ coxph(Surv(time = core_data$os_time,
 ## 2. Adjusted HR (**include each 3 values and use the cluster option**) - categories
 ```{r}
 coxph(Surv(time = core_data$os_time,
-           event = core_data$os_event) ~ m0_simple_cells_percent_cat + refage + stage_cat + histotype2,
+           event = core_data$os_event) ~ neutral_4060p_cat + refage + stage_cat + histotype2,
       cluster = suid,
       data = core_data)  %>%
   tbl_regression(exponentiate = TRUE) %>%
@@ -579,7 +585,7 @@ coxph(Surv(time = core_data$os_time,
   add_nevent(location = "level") %>% add_n(location = "level")
 
 coxph(Surv(time = core_data$os_time,
-           event = core_data$os_event) ~ m1_simple_cells_percent_cat + refage + stage_cat + histotype2,
+           event = core_data$os_event) ~ m1_60p_cat + refage + stage_cat + histotype2,
       cluster = suid,
       data = core_data)  %>%
   tbl_regression(exponentiate = TRUE) %>%
@@ -587,7 +593,7 @@ coxph(Surv(time = core_data$os_time,
   add_nevent(location = "level") %>% add_n(location = "level")
 
 coxph(Surv(time = core_data$os_time,
-           event = core_data$os_event) ~ m2_simple_cells_percent_cat + refage + stage_cat + histotype2,
+           event = core_data$os_event) ~ m2_40p_cat + refage + stage_cat + histotype2,
       cluster = suid,
       data = core_data)  %>%
   tbl_regression(exponentiate = TRUE) %>%
@@ -595,7 +601,7 @@ coxph(Surv(time = core_data$os_time,
   add_nevent(location = "level") %>% add_n(location = "level")
 #
 coxph(Surv(time = core_data$os_time,
-           event = core_data$os_event) ~ m0_simple_cells_cat + refage + stage_cat + histotype2,
+           event = core_data$os_event) ~ neutral_3070p_cat + refage + stage_cat + histotype2,
       cluster = suid,
       data = core_data)  %>%
   tbl_regression(exponentiate = TRUE) %>%
@@ -603,7 +609,7 @@ coxph(Surv(time = core_data$os_time,
   add_nevent(location = "level") %>% add_n(location = "level")
 
 coxph(Surv(time = core_data$os_time,
-           event = core_data$os_event) ~ m1_simple_cells_cat + refage + stage_cat + histotype2,
+           event = core_data$os_event) ~ m1_70p_cat + refage + stage_cat + histotype2,
       cluster = suid,
       data = core_data)  %>%
   tbl_regression(exponentiate = TRUE) %>%
@@ -611,7 +617,7 @@ coxph(Surv(time = core_data$os_time,
   add_nevent(location = "level") %>% add_n(location = "level")
 
 coxph(Surv(time = core_data$os_time,
-           event = core_data$os_event) ~ m2_simple_cells_cat + refage + stage_cat + histotype2,
+           event = core_data$os_event) ~ m2_30p_cat + refage + stage_cat + histotype2,
       cluster = suid,
       data = core_data)  %>%
   tbl_regression(exponentiate = TRUE) %>%
@@ -624,7 +630,7 @@ coxph(Surv(time = core_data$os_time,
 ## 1. Adjusted HR (**include each 3 values and use the cluster option**) - continuous
 ```{r}
 coxph(Surv(time = core_data$os_time,
-           event = core_data$os_event) ~ m0_simple_cells_percent + refage + stage_cat + histotype2 + dblkstat_CA125,
+           event = core_data$os_event) ~ neutral_4060p + refage + stage_cat + histotype2 + dblkstat_CA125,
       cluster = suid,
       data = core_data)  %>%
   tbl_regression(exponentiate = TRUE) %>%
@@ -632,7 +638,7 @@ coxph(Surv(time = core_data$os_time,
   add_nevent(location = "level") %>% add_n(location = "level")
 
 coxph(Surv(time = core_data$os_time,
-           event = core_data$os_event) ~ m1_simple_cells_percent + refage + stage_cat + histotype2 + dblkstat_CA125,
+           event = core_data$os_event) ~ m1_60p + refage + stage_cat + histotype2 + dblkstat_CA125,
       cluster = suid,
       data = core_data)  %>%
   tbl_regression(exponentiate = TRUE) %>%
@@ -640,7 +646,7 @@ coxph(Surv(time = core_data$os_time,
   add_nevent(location = "level") %>% add_n(location = "level")
 
 coxph(Surv(time = core_data$os_time,
-           event = core_data$os_event) ~ m2_simple_cells_percent + refage + stage_cat + histotype2 + dblkstat_CA125,
+           event = core_data$os_event) ~ m2_40p + refage + stage_cat + histotype2 + dblkstat_CA125,
       cluster = suid,
       data = core_data)  %>%
   tbl_regression(exponentiate = TRUE) %>%
@@ -648,7 +654,7 @@ coxph(Surv(time = core_data$os_time,
   add_nevent(location = "level") %>% add_n(location = "level")
 #
 coxph(Surv(time = core_data$os_time,
-           event = core_data$os_event) ~ m0_simple_cells + refage + stage_cat + histotype2 + dblkstat_CA125,
+           event = core_data$os_event) ~ neutral_3070p + refage + stage_cat + histotype2 + dblkstat_CA125,
       cluster = suid,
       data = core_data)  %>%
   tbl_regression(exponentiate = TRUE) %>%
@@ -656,7 +662,7 @@ coxph(Surv(time = core_data$os_time,
   add_nevent(location = "level") %>% add_n(location = "level")
 
 coxph(Surv(time = core_data$os_time,
-           event = core_data$os_event) ~ m1_simple_cells + refage + stage_cat + histotype2 + dblkstat_CA125,
+           event = core_data$os_event) ~ m1_70p + refage + stage_cat + histotype2 + dblkstat_CA125,
       cluster = suid,
       data = core_data)  %>%
   tbl_regression(exponentiate = TRUE) %>%
@@ -664,7 +670,7 @@ coxph(Surv(time = core_data$os_time,
   add_nevent(location = "level") %>% add_n(location = "level")
 
 coxph(Surv(time = core_data$os_time,
-           event = core_data$os_event) ~ m2_simple_cells + refage + stage_cat + histotype2 + dblkstat_CA125,
+           event = core_data$os_event) ~ m2_30p + refage + stage_cat + histotype2 + dblkstat_CA125,
       cluster = suid,
       data = core_data)  %>%
   tbl_regression(exponentiate = TRUE) %>%
@@ -675,7 +681,7 @@ coxph(Surv(time = core_data$os_time,
 ## 2. Adjusted HR (**include each 3 values and use the cluster option**) - categories
 ```{r}
 coxph(Surv(time = core_data$os_time,
-           event = core_data$os_event) ~ m0_simple_cells_percent_cat + refage + stage_cat + histotype2 + dblkstat_CA125,
+           event = core_data$os_event) ~ neutral_4060p_cat + refage + stage_cat + histotype2 + dblkstat_CA125,
       cluster = suid,
       data = core_data)  %>%
   tbl_regression(exponentiate = TRUE) %>%
@@ -683,7 +689,7 @@ coxph(Surv(time = core_data$os_time,
   add_nevent(location = "level") %>% add_n(location = "level")
 
 coxph(Surv(time = core_data$os_time,
-           event = core_data$os_event) ~ m1_simple_cells_percent_cat + refage + stage_cat + histotype2 + dblkstat_CA125,
+           event = core_data$os_event) ~ m1_60p_cat + refage + stage_cat + histotype2 + dblkstat_CA125,
       cluster = suid,
       data = core_data)  %>%
   tbl_regression(exponentiate = TRUE) %>%
@@ -691,7 +697,7 @@ coxph(Surv(time = core_data$os_time,
   add_nevent(location = "level") %>% add_n(location = "level")
 
 coxph(Surv(time = core_data$os_time,
-           event = core_data$os_event) ~ m2_simple_cells_percent_cat + refage + stage_cat + histotype2 + dblkstat_CA125,
+           event = core_data$os_event) ~ m2_40p_cat + refage + stage_cat + histotype2 + dblkstat_CA125,
       cluster = suid,
       data = core_data)  %>%
   tbl_regression(exponentiate = TRUE) %>%
@@ -699,7 +705,7 @@ coxph(Surv(time = core_data$os_time,
   add_nevent(location = "level") %>% add_n(location = "level")
 #
 coxph(Surv(time = core_data$os_time,
-           event = core_data$os_event) ~ m0_simple_cells_cat + refage + stage_cat + histotype2 + dblkstat_CA125,
+           event = core_data$os_event) ~ neutral_3070p_cat + refage + stage_cat + histotype2 + dblkstat_CA125,
       cluster = suid,
       data = core_data)  %>%
   tbl_regression(exponentiate = TRUE) %>%
@@ -707,7 +713,7 @@ coxph(Surv(time = core_data$os_time,
   add_nevent(location = "level") %>% add_n(location = "level")
 
 coxph(Surv(time = core_data$os_time,
-           event = core_data$os_event) ~ m1_simple_cells_cat + refage + stage_cat + histotype2 + dblkstat_CA125,
+           event = core_data$os_event) ~ m1_70p_cat + refage + stage_cat + histotype2 + dblkstat_CA125,
       cluster = suid,
       data = core_data)  %>%
   tbl_regression(exponentiate = TRUE) %>%
@@ -715,13 +721,60 @@ coxph(Surv(time = core_data$os_time,
   add_nevent(location = "level") %>% add_n(location = "level")
 
 coxph(Surv(time = core_data$os_time,
-           event = core_data$os_event) ~ m2_simple_cells_cat + refage + stage_cat + histotype2 + dblkstat_CA125,
+           event = core_data$os_event) ~ m2_30p_cat + refage + stage_cat + histotype2 + dblkstat_CA125,
       cluster = suid,
       data = core_data)  %>%
   tbl_regression(exponentiate = TRUE) %>%
   bold_p(t = .05) %>%
   add_nevent(location = "level") %>% add_n(location = "level")
 ```
+
+# IX. KM
+```{r}
+ggsurvplot(survfit(Surv(os_time, os_event) ~ m1_60p_cat,
+                   data=tam_data),
+           title = "OS Analysis",
+           font.main = c(20, "bold", "black"),
+           font.x = c(18, "bold", "black"),
+           font.y = c(18, "bold", "black"),
+           font.legend = c(16, "black"),
+           font.tickslab = c(16, "bold", "black"),
+           size = 1.5,
+
+           xlab = "Time in months",
+           legend = "top",
+           legend.title = "M1 categories",
+           pval = TRUE,
+           conf.int = FALSE,
+           # Censor
+           censor = TRUE
+) + guides(colour = guide_legend(ncol = 1))
+
+ggsurvplot(survfit(Surv(os_time, os_event) ~ m1_70p_cat,
+                   data=tam_data),
+           title = "OS Analysis",
+           font.main = c(20, "bold", "black"),
+           font.x = c(18, "bold", "black"),
+           font.y = c(18, "bold", "black"),
+           font.legend = c(16, "black"),
+           font.tickslab = c(16, "bold", "black"),
+           size = 1.5,
+
+           xlab = "Time in months",
+           legend = "top",
+           legend.title = "M1 categories",
+           pval = TRUE,
+           conf.int = FALSE,
+           # Censor
+           censor = TRUE
+) + guides(colour = guide_legend(ncol = 1))
+```
+
+***
+
+
+
+
 
 
 
