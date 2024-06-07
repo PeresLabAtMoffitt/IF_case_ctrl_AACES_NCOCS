@@ -484,7 +484,96 @@ ROI_global_2021 <-
 rm(ROI_total, ROI_tumor, ROI_stroma, ROIimage_remove)
 
 
-############################################################################## VI ### Bind ROIs data----
+############################################################################## VI ### Clean TMA/WTS exhaustion data 2024----
+# TMA----
+TMA_manifest <- bind_rows(TMA2017_manifest %>% 
+                            mutate(tma_batch = "tma 2017"),
+                          TMA2018_manifest %>% 
+                            mutate(tma_batch = "tma 2018"))
+
+TMA_exhaustion_aaces1 <- bind_rows(
+  full_join(TMA2017_tumor_2024june, TMA2017_stroma_2024june,
+            by = "image_tag") %>% 
+  full_join(., TMA2017_total_2024june,
+            by = "image_tag") %>% 
+    mutate(tma_batch = "tma 2017", .after = 1),
+  full_join(TMA2018_tumor_2024june, TMA2018_stroma_2024june,
+            by = "image_tag") %>% 
+    full_join(., TMA2018_total_2024june,
+              by = "image_tag") %>% 
+    mutate(tma_batch = "tma 2018", .after = 1)
+  ) %>% 
+  mutate(aaces_phase = "AACES_1", .after = 1) %>% 
+  rename_at(vars(starts_with("tim") | 
+                   starts_with("pd") |
+                   starts_with("cd") |
+                   starts_with("percent_tim") | 
+                   starts_with("percent_pd") | 
+                   starts_with("percent_cd") |
+                   starts_with("area")
+  ), ~ paste0("total_", .)) 
+
+TMA_exhaustion_aaces2 <- bind_rows(
+  full_join(TMAaaces2_tumor_2024june, TMAaaces2_stroma_2024june,
+            by = "image_tag") %>% 
+    full_join(., TMAaaces2_total_2024june,
+              by = "image_tag") %>% 
+    mutate(tma_batch = "tma 2024", .after = 1)
+  ) %>% 
+  mutate(aaces_phase = "AACES_2", .after = 1) %>% 
+  rename_at(vars(starts_with("tim") | 
+                   starts_with("pd") |
+                   starts_with("cd") |
+                   starts_with("percent_tim") | 
+                   starts_with("percent_pd") | 
+                   starts_with("percent_cd") |
+                   starts_with("area")
+  ), ~ paste0("total_", .)) 
+  
+  
+TMA_exhaustion2024 <- bind_rows(TMA_exhaustion_aaces1, 
+                                TMA_exhaustion_aaces2) %>% 
+  mutate(slide_type = "TMA") %>% 
+  mutate(panel = "Exhaustion", .after = 3)
+
+TMA_exhaustion2024 <- TMA_exhaustion2024 %>% 
+  mutate(core = str_match(image_tag, 
+                          ".*(\\[.*\\]).tif")[,2], .after = image_tag) %>% 
+  full_join(., TMA_manifest, by = c("core", "tma_batch")) %>% 
+  select(suid, image_tag, core, everything()) %>% 
+  filter(!is.na(image_tag) & !is.na(suid)) %>% 
+  mutate(suid = as.character(suid)) %>% 
+  # Remove the TMA IDs of excluded patient from the study
+  filter(!str_detect(
+    paste(unique(TMAcases_remove$Subject_IDs), collapse = "|"),
+    suid))
+
+# Note :
+# 2017 core 4A was removed as is broken pieces of core 
+# 2017 cores row 1 and 28 are controls
+# 2017 - 4 additional cores [5,G], [5,J], [3,O], [11,Q] were removed compared to the manifest
+# because of no data
+# 2018 cores row 1 and 20 are controls
+# 2024 cores row 1 and (9?) are controls
+write_rds(TMA_exhaustion2024, "raw_data_all_TMAs_exhaustion_panel_2024.rds")
+
+
+
+
+
+rm(TMA2017_tumor_2024june, TMA2017_stroma_2024june, 
+   TMA2017_total_2024june, TMA2018_tumor_2024june, 
+   TMA2018_stroma_2024june, TMA2018_total_2024june,
+   TMAaaces2_tumor_2024june, TMAaaces2_stroma_2024june,
+   TMAaaces2_total_2024june,
+   TMA_exhaustion_aaces1, TMA_exhaustion_aaces2,
+   TMA_manifest, TMA2017_manifest, TMA2018_manifest,
+   TMAcases_remove)
+
+
+# WTS----
+
+############################################################################## VII ### Bind ROIs data----
 markers_AACES_NCOCS <- bind_rows(ROI_global_2021, TMA_global, ROI_global_2022jan) %>% 
   `colnames<-`(str_remove_all(colnames(.), "_positive_cells|_cells|_opal_..._positive_cells")) %>% 
   select(data_version, image_tag, suid, annotation, slide_type, everything()) %>% 
