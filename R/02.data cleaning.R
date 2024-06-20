@@ -2,9 +2,10 @@
 
 library(tidyverse)
 
-# Load data
-# Run "01.Load data AACES2" for AACES batch2 data
-# Run drake for AACES batch1 and NCOCS data
+############################################################################## I III Load data----
+# Run _drake for AACES1 batch1 and NCOCS data
+# Run "012.Load data AACES1batch2.R" for AACES1 batch2 data
+# Run "013.Load data exhaustion marker_June2024.R" for AACES2 batch1 data
 
 ############################################################################## II ### Cleaning clinical data----
 cases_match <- cases_match %>% mutate(suid = as.character(suid))
@@ -20,19 +21,29 @@ case_ctrl_data <- bind_rows(aaces_clinical, ncocs_clinical) %>%
     casecon == 1                                       ~ "Case",
     casecon == 2                                       ~ "Control"
   )) %>% 
+  # Rename older vital status but keep in data
+  rename(vitalstatus_2022 = vitalstatus,
+         timelastfu_2022 = timelastfu) %>% 
+  # Recode older vital status for NCOCS cases
+  mutate(vitalstatus_2022 = na_if(vitalstatus_2022, 88)) %>% 
+  mutate(vitalstatus_2022 = case_when(
+    vitalstatus_2022 == 1         ~ 0,
+    vitalstatus_2022 == 2         ~ 1
+  )) %>% 
+  # Calculate follow up time as time from interview for NCOCS cases
+  mutate(timelastfu_2022 = na_if(timelastfu_2022, 8888)) %>% 
+  mutate(os_time_days_NCOCS = timelastfu_2022 - timeint) %>%
+  # Create survival var
+  left_join(., survival_time_Nov2023, by = "suid") %>% 
+  mutate(os_event = coalesce(vital_status_nov2023, vitalstatus_2022)) %>%
   mutate(vitalstatus = case_when(
-    vitalstatus == 1                                   ~ "Alive",
-    vitalstatus == 2                                   ~ "Deceased",
+    os_event == 0                                      ~ "Alive",
+    os_event == 1                                      ~ "Deceased",
     TRUE                                               ~ NA_character_
   )) %>% 
-  mutate(os_event = case_when(
-    vitalstatus == "Alive"                             ~ 0,
-    vitalstatus == "Deceased"                          ~ 1,
-    TRUE                                               ~ NA_real_
-  )) %>% 
-  # Calculate follow up time as time from interview to follow up
-  mutate(os_time = timelastfu - timeint) %>% 
-  mutate(timeint_fu = round(os_time/30.417, digit=1)) %>% 
+  mutate(os_time_days = coalesce(days_int_to_event, os_time_days_NCOCS)) %>% 
+  mutate(os_time_months = round(os_time_days/30.417, digit=1)) %>% 
+  # Recode other variables
   mutate(cancersite = case_when(
     cancersite == 1                                    ~ "Ovarian",
     cancersite == 2                                    ~ "Tubal",
@@ -41,7 +52,7 @@ case_ctrl_data <- bind_rows(aaces_clinical, ncocs_clinical) %>%
     cancersite == 5                                    ~ "Ovarian, tubal or peritoneal, can't distinguish",
     TRUE                                               ~ NA_character_
   )) %>% 
-  mutate_at(c("timelastfu", "morphology", "hysteryear", "oophoryear", "tubeligyear",
+  mutate_at(c("morphology", "hysteryear", "oophoryear", "tubeligyear",
               "anyfhdur", "eonlydur", "epdur"), 
             ~ case_when(
               . %in% c("8888","9998", "9999")          ~ NA_real_,
@@ -367,9 +378,20 @@ case_ctrl_data <- case_ctrl_data %>%
     TRUE                                        ~ "others"
   ))
 
-saveRDS(case_ctrl_data, file = "case_ctrl_data_07132023.rds")
+save_path <- fs::path("","Volumes","Peres_Research", "AACES",
+                      "AACES_NCOCS_immune_data", "processed_data")
+write_rds(case_ctrl_data, "case_ctrl_data_06142024.rds")
+write_rds(case_ctrl_data, paste0(save_path, "/case_ctrl_data_06142024.rds"))
+write_csv(case_ctrl_data, paste0(save_path, "/case_ctrl_data_06142024.csv"))
 
-rm(aaces_clinical, ncocs_clinical, cases_match)
+survival_time_Nov2023 <- case_ctrl_data %>% 
+  select(suid, timeint, os_event, os_time_days, os_time_months)
+
+write_csv(survival_time_Nov2023, paste0("survival_time_Nov2023_", Sys.Date(),".csv"))
+write_csv(survival_time_Nov2023, paste0(save_path, "/survival_time_Nov2023_", Sys.Date(),".csv"))
+
+rm(aaces_clinical, ncocs_clinical, cases_match, 
+   survival_time_Nov2023)
 
 
 ############################################################################## III ### Join New ROIs data----
@@ -382,24 +404,27 @@ ROI_global_2022jan <-
          suid = str_match(image_tag,
                           "(L.Peres_P1_OV|L.Peres_P1_)([:digit:]*)")[,3],
          .before = 1) %>%
-  select(image_tag, suid, annotation, everything()) %>%
+  select(image_tag, suid, roi_region = annotation, everything()) %>%
   arrange(suid) %>% 
   # Remove patients who were excluded from the study probably after path review
   filter(!str_detect(suid, paste0(ROIcases_remove$Subject_IDs, collapse = "|"))) %>% 
-  mutate_at(("annotation"), ~ case_when(
-    annotation == "P"                     ~ "Peripheral",
-    annotation == "I"                     ~ "Intratumoral",
-    annotation == "S"                     ~ "Stromal")
+  mutate_at(("roi_region"), ~ case_when(
+    roi_region == "P"                     ~ "Peripheral",
+    roi_region == "I"                     ~ "Intratumoral",
+    roi_region == "S"                     ~ "Stromal")
   ) %>%
-  mutate(slide_type = "ROI") %>% 
-  mutate(data_version = "AACES_v2") %>% 
-  rename(tumor_area_analyzed_μm2 = tumor_area_analyzed_mm2,
-         stroma_area_analyzed_μm2 = stroma_area_analyzed_mm2,
-         total_area_analyzed_μm2 = total_area_analyzed_mm2,
-         tumor_area_analyzed_mm2 = tumor_area_analyzed_mm2_2,
-         stroma_area_analyzed_mm2 = stroma_area_analyzed_mm2_2,
-         total_area_analyzed_mm2 = total_area_analyzed_mm2_2
-         )
+  mutate(aaces_phase = "AACES_1", .after = image_tag) %>%
+  mutate(panel = "1 (Abundance)", .after = aaces_phase) %>% 
+  mutate(panel1_batch = "roi 2022", .after = panel) %>% 
+  mutate(slide_type = "ROI", .after = panel1_batch) %>% 
+  mutate(data_version = "AACES_1_v2", .after = slide_type) %>% 
+  # rename(tumor_area_analyzed_μm2 = tumor_area_analyzed_mm2,
+  #        stroma_area_analyzed_μm2 = stroma_area_analyzed_mm2,
+  #        total_area_analyzed_μm2 = total_area_analyzed_mm2,
+  #        tumor_area_analyzed_mm2 = tumor_area_analyzed_mm2_2,
+  #        stroma_area_analyzed_mm2 = stroma_area_analyzed_mm2_2,
+  #        total_area_analyzed_mm2 = total_area_analyzed_mm2_2
+  #        )
 
 rm(ROI_stroma_2022jan, ROI_total_2022jan, ROI_tumor_2022jan)
 
@@ -414,7 +439,7 @@ TMA_stroma <- TMA_stroma %>%
   filter(!is.na(suid))
 TMA_total <- TMA_total %>% 
   filter(!is.na(suid)) %>% 
-  # add total_ suffixes
+  # Add "total" to each marker variable
   rename_at(vars(starts_with("fox") | 
                    starts_with("cd") |
                    starts_with("percent_fox") | 
@@ -432,9 +457,12 @@ TMA_global <-
   filter(!str_detect(
     paste(unique(TMAcases_remove$Subject_IDs), collapse = "|"), 
     suid)) %>% 
-  mutate(slide_type = "TMA") %>% 
-  mutate(annotation = "tma") %>% 
-  mutate(data_version = "AACES_v1_NCOCS") %>% 
+  mutate(aaces_phase = "AACES_1", .after = image_tag) %>%
+  mutate(panel = "1 (Abundance)", .after = aaces_phase) %>% 
+  mutate(panel1_batch = "tma 2017-18", .after = panel) %>% 
+  mutate(slide_type = "TMA", .after = panel1_batch) %>% 
+  mutate(data_version = "AACES_1_NCOCS_v1", .after = slide_type)
+  
   rename_at(vars(ends_with("_")
   ), ~ str_replace(., "_$", "")) %>% 
   select(image_tag, suid, everything(),
@@ -463,18 +491,24 @@ ROI_global_2021 <-
   # Remove images that were not stained properly
   filter(!image_tag %in% c(ROIimage_remove$remove_images_that_were_not_stained_properly)) %>% 
   # homogenize / AACES2
-  mutate(intratumoral_i_vs_peripheral_p_ = case_when(
-    intratumoral_i_vs_peripheral_p_ == "p" ~ "Peripheral",
-    intratumoral_i_vs_peripheral_p_ == "i" ~ "Intratumoral")
+  rename(roi_region = intratumoral_i_vs_peripheral_p_) %>% 
+  mutate(roi_region = case_when(
+    roi_region == "p" ~ "Peripheral",
+    roi_region == "i" ~ "Intratumoral")
   ) %>% 
   mutate(suid = as.character(suid)) %>% 
-  mutate(slide_type = "ROI")  %>% 
-  mutate(data_version = "AACES_v1_NCOCS") %>% 
+  
+  mutate(aaces_phase = "AACES_1", .after = image_tag) %>%
+  mutate(panel = "1 (Abundance)", .after = aaces_phase) %>% 
+  mutate(panel1_batch = "roi 2021", .after = panel) %>% 
+  mutate(slide_type = "ROI", .after = panel1_batch) %>% 
+  mutate(data_version = "AACES_1_NCOCS_v1", .after = slide_type)
   select(image_tag, suid, everything()) %>% 
-  rename(annotation = intratumoral_i_vs_peripheral_p_) %>% 
+    
   rename_at(vars(ends_with("_")
   ), ~ str_replace(., "_$", "")) %>% 
-  rename_at(vars(starts_with("fox") | 
+    # Add "total" to each marker variable
+    rename_at(vars(starts_with("fox") | 
                    starts_with("cd") |
                    starts_with("percent_fox") | 
                    starts_with("percent_cd") |
@@ -487,23 +521,26 @@ rm(ROI_total, ROI_tumor, ROI_stroma, ROIimage_remove)
 ############################################################################## VI ### Clean TMA/WTS exhaustion data 2024----
 # TMA----
 TMA_manifest <- bind_rows(TMA2017_manifest %>% 
-                            mutate(tma_batch = "tma 2017"),
+                            mutate(panel2_batch = "tma 2017"),
                           TMA2018_manifest %>% 
-                            mutate(tma_batch = "tma 2018"))
+                            mutate(panel2_batch = "tma 2018"),
+                          TMA2024_manifest %>% 
+                            mutate(panel2_batch = "tma 2024"))
 
 TMA_exhaustion_aaces1 <- bind_rows(
   full_join(TMA2017_tumor_2024june, TMA2017_stroma_2024june,
             by = "image_tag") %>% 
   full_join(., TMA2017_total_2024june,
             by = "image_tag") %>% 
-    mutate(tma_batch = "tma 2017", .after = 1),
+    mutate(panel2_batch = "tma 2017", .after = 1),
   full_join(TMA2018_tumor_2024june, TMA2018_stroma_2024june,
             by = "image_tag") %>% 
     full_join(., TMA2018_total_2024june,
               by = "image_tag") %>% 
-    mutate(tma_batch = "tma 2018", .after = 1)
+    mutate(panel2_batch = "tma 2018", .after = 1)
   ) %>% 
   mutate(aaces_phase = "AACES_1", .after = 1) %>% 
+  # Add "total" to each marker variable
   rename_at(vars(starts_with("tim") | 
                    starts_with("pd") |
                    starts_with("cd") |
@@ -513,14 +550,13 @@ TMA_exhaustion_aaces1 <- bind_rows(
                    starts_with("area")
   ), ~ paste0("total_", .)) 
 
-TMA_exhaustion_aaces2 <- bind_rows(
+TMA_exhaustion_aaces2 <- 
+  # Join
   full_join(TMAaaces2_tumor_2024june, TMAaaces2_stroma_2024june,
             by = "image_tag") %>% 
     full_join(., TMAaaces2_total_2024june,
               by = "image_tag") %>% 
-    mutate(tma_batch = "tma 2024", .after = 1)
-  ) %>% 
-  mutate(aaces_phase = "AACES_2", .after = 1) %>% 
+  # Add "total" to each marker variable
   rename_at(vars(starts_with("tim") | 
                    starts_with("pd") |
                    starts_with("cd") |
@@ -533,16 +569,21 @@ TMA_exhaustion_aaces2 <- bind_rows(
   
 TMA_exhaustion2024 <- bind_rows(TMA_exhaustion_aaces1, 
                                 TMA_exhaustion_aaces2) %>% 
-  mutate(slide_type = "TMA") %>% 
-  mutate(panel = "Exhaustion", .after = 3)
+  mutate(aaces_phase = "AACES_2", .after = 1) %>% 
+  mutate(panel = "2 (Exhaustion)", .after = 3) %>% 
+  mutate(panel2_batch = "tma 2024", .after = panel) %>% 
+  mutate(slide_type = "TMA", .after = panel2_batch) %>% 
+  mutate(data_version = "AACES_2_v1", .after = slide_type)
 
 TMA_exhaustion2024 <- TMA_exhaustion2024 %>% 
+  # Extract suid
   mutate(core = str_match(image_tag, 
                           ".*(\\[.*\\]).tif")[,2], .after = image_tag) %>% 
-  full_join(., TMA_manifest, by = c("core", "tma_batch")) %>% 
+  full_join(., TMA_manifest, by = c("core", "panel2_batch")) %>% 
   select(suid, image_tag, core, everything()) %>% 
-  filter(!is.na(image_tag) & !is.na(suid)) %>% 
   mutate(suid = as.character(suid)) %>% 
+  # Remove ctrl (no suid) and TMA that were remove from core (no image_tag)
+  filter(!is.na(image_tag) & !is.na(suid)) %>% 
   # Remove the TMA IDs of excluded patient from the study
   filter(!str_detect(
     paste(unique(TMAcases_remove$Subject_IDs), collapse = "|"),
@@ -557,10 +598,6 @@ TMA_exhaustion2024 <- TMA_exhaustion2024 %>%
 # 2024 cores row 1 and (9?) are controls
 write_rds(TMA_exhaustion2024, "raw_data_all_TMAs_exhaustion_panel_2024.rds")
 
-
-
-
-
 rm(TMA2017_tumor_2024june, TMA2017_stroma_2024june, 
    TMA2017_total_2024june, TMA2018_tumor_2024june, 
    TMA2018_stroma_2024june, TMA2018_total_2024june,
@@ -572,11 +609,53 @@ rm(TMA2017_tumor_2024june, TMA2017_stroma_2024june,
 
 
 # WTS----
+# We have 6 duplicate scanned slides between set but with different counts
+# Looks like the slides were scanned twice
+# Using set 1 for now
+# Peres_P3_MOTIF_110393
+# Peres_P3_MOTIF_110388
+# Peres_P3_MOTIF_190047
+# Peres_P3_MOTIF_110393
+# Peres_P3_MOTIF_110388
+# Peres_P3_MOTIF_190047
+
+WTS_exhaustion_aaces2 <- 
+  # Join
+  full_join(WTS_tumor_2024june, WTS_stroma_2024june,
+            by = c("image_tag", "set")) %>% 
+    full_join(., WTS_total_2024june,
+              by = c("image_tag", "set")) %>% 
+  # Add "total" to each marker variable
+  rename_at(vars(starts_with("tim") | 
+                   starts_with("pd") |
+                   starts_with("cd") |
+                   starts_with("percent_tim") | 
+                   starts_with("percent_pd") | 
+                   starts_with("percent_cd") |
+                   starts_with("area")
+  ), ~ paste0("total_", .)) %>% 
+  mutate(aaces_phase = "AACES_2", .after = image_tag) %>% 
+  mutate(panel = "2 (Exhaustion)", .after = aaces_phase) %>% 
+  mutate(panel2_batch = "wts 2024", .after = panel) %>% 
+  mutate(slide_type = "WTS", .after = panel2_batch) %>% 
+  mutate(data_version = "AACES_2_v1", .after = slide_type)
+
+WTS_exhaustion_aaces2 <- WTS_exhaustion_aaces2 %>% 
+  # extract suid
+  mutate(suid = str_replace(image_tag, "16-", "16"),
+         suid = str_match(suid, 
+                          "(Peres_P3_MOTIF_AACES |Peres_P3_MOTIF_ACCESS |Peres_P3_MOTIF_OV|Peres_P3_MOTIF_)(\\d+).*.tif")[,3],
+         .after = image_tag) %>% 
+  select(suid, image_tag, everything()) %>% 
+  # Remove patients who were excluded from the study probably after path review
+  filter(!str_detect(
+    suid, paste0(ROIcases_remove$Subject_IDs, collapse = "|")))
+
 
 ############################################################################## VII ### Bind ROIs data----
 markers_AACES_NCOCS <- bind_rows(ROI_global_2021, TMA_global, ROI_global_2022jan) %>% 
   `colnames<-`(str_remove_all(colnames(.), "_positive_cells|_cells|_opal_..._positive_cells")) %>% 
-  select(data_version, image_tag, suid, annotation, slide_type, everything()) %>% 
+  select(data_version, image_tag, suid, roi_region, slide_type, everything()) %>% 
   rename(total_total = total)
 
 saveRDS(markers_AACES_NCOCS, file = "markers_AACES_NCOCS_batch1_2_07132023.rds")
@@ -585,7 +664,7 @@ write_csv(markers_AACES_NCOCS, "markers_AACES_NCOCS_batch1_2_07132023.csv")
 complete_AACES_NCOCS_global <- left_join(markers_AACES_NCOCS,
                                     case_ctrl_data,
                                     by= "suid") %>% 
-  select(image_tag, suid, annotation, slide_type, site, data_version, everything())
+  select(image_tag, suid, roi_region, slide_type, site, data_version, everything())
 
 complete_AACES_NCOCS_global %>% 
   distinct(suid, .keep_all = TRUE) %>% 
